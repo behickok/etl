@@ -18,6 +18,19 @@
     return page.ocrTable;
   }
 
+  // Helper: Convert table data (array of objects) to CSV string.
+  function tableToCSV(tableData) {
+    if (!tableData || !tableData.length) return "";
+    // Get headers from keys of first row.
+    const headers = Object.keys(tableData[0]);
+    const rows = tableData.map(row => headers.map(header => row[header]));
+    // Join header and rows.
+    const csvLines = [];
+    csvLines.push(headers.join(","));
+    rows.forEach(r => csvLines.push(r.join(",")));
+    return csvLines.join("\n");
+  }
+
   // Reactive block to redraw drawn bounding boxes.
   $: {
     pages.forEach((page) => {
@@ -56,7 +69,7 @@
   async function handleFileChange(event) {
     const file = event.target.files[0];
     if (!file) return;
-
+  
     const fileReader = new FileReader();
     fileReader.onload = async function () {
       const typedarray = new Uint8Array(this.result);
@@ -73,7 +86,7 @@
           const context = canvas.getContext('2d');
           await page.render({ canvasContext: context, viewport }).promise;
           const imageURL = canvas.toDataURL();
-
+  
           pages = [
             ...pages,
             {
@@ -97,7 +110,9 @@
               schema: {
                 tableName: `table_${i}`,
                 columns: []
-              }
+              },
+              // New property for view mode: "table" (default) or "csv"
+              viewMode: "table"
             }
           ];
         }
@@ -107,7 +122,7 @@
     };
     fileReader.readAsArrayBuffer(file);
   }
-
+  
   // Canvas overlay mouse event handlers.
   function canvasMouseDown(index, event) {
     const rect = event.target.getBoundingClientRect();
@@ -118,7 +133,7 @@
     pages[index].currentY = pages[index].startY;
     updatePage(index);
   }
-
+  
   function canvasMouseMove(index, event) {
     if (!pages[index].isDrawing) return;
     const rect = event.target.getBoundingClientRect();
@@ -126,7 +141,7 @@
     pages[index].currentY = event.clientY - rect.top;
     updatePage(index);
   }
-
+  
   function canvasMouseUp(index, event) {
     if (!pages[index].isDrawing) return;
     pages[index].isDrawing = false;
@@ -137,22 +152,28 @@
     pages[index].boundingBox = { x, y, width, height };
     updatePage(index);
   }
-
+  
   function updatePage(index) {
     pages = pages.map((p, i) => (i === index ? { ...p } : p));
   }
-
+  
   // Schema form functions.
   function addColumn(index) {
     pages[index].schema.columns = [...pages[index].schema.columns, { name: "", type: "VARCHAR" }];
     updatePage(index);
   }
-
+  
   function updateColumn(index, colIndex, field, value) {
     pages[index].schema.columns[colIndex][field] = value;
     updatePage(index);
   }
-
+  
+  // Toggle view mode for a page.
+  function toggleViewMode(index) {
+    pages[index].viewMode = pages[index].viewMode === "table" ? "csv" : "table";
+    updatePage(index);
+  }
+  
   // Combined OCR & Gemini function.
   async function runOCR(index) {
     pages[index].ocrInProgress = true;
@@ -161,7 +182,7 @@
     await worker.setParameters({
       tessedit_pageseg_mode: 3
     });
-
+  
     let imageToProcess = pages[index].imageURL;
     if (pages[index].boundingBox) {
       const img = new Image();
@@ -175,14 +196,14 @@
       offCanvas.height = pages[index].height;
       const offCtx = offCanvas.getContext('2d');
       offCtx.drawImage(img, 0, 0);
-
+  
       const scaleFactor = pages[index].displayScale;
       const bb = pages[index].boundingBox;
       const cropX = bb.x * scaleFactor;
       const cropY = bb.y * scaleFactor;
       const cropWidth = bb.width * scaleFactor;
       const cropHeight = bb.height * scaleFactor;
-
+  
       const cropCanvas = document.createElement('canvas');
       cropCanvas.width = cropWidth;
       cropCanvas.height = cropHeight;
@@ -190,7 +211,7 @@
       cropCtx.drawImage(offCanvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
       imageToProcess = cropCanvas.toDataURL();
     }
-
+  
     // Run OCR.
     const { data } = await worker.recognize(imageToProcess, { tessjs_create_tsv: '1' });
     pages[index].ocrData = data;
@@ -199,7 +220,7 @@
     pages[index].ocrInProgress = false;
     await worker.terminate();
     updatePage(index);
-
+  
     // Build Gemini prompt (append schema info if provided).
     let prompt = ocrText;
     const schema = pages[index].schema;
@@ -218,7 +239,7 @@
         prompt += `\nThe table name is ${schema.tableName}.`;
       }
     }
-
+  
     // Push prompt to Gemini.
     pages[index].geminiInProgress = true;
     updatePage(index);
@@ -230,7 +251,7 @@
         systemInstruction:
           "Please turn the following text which was extracted from a table using OCR back into a table structure. Please return the updated response as a JSON object with no further commentary.",
       });
-
+  
       const generationConfig = {
         temperature: 1,
         topP: 0.95,
@@ -238,31 +259,31 @@
         maxOutputTokens: 8192,
         responseMimeType: "text/plain",
       };
-
+  
       const chatSession = model.startChat({
         generationConfig,
         history: [],
       });
-
+  
       const result = await chatSession.sendMessage(prompt);
       console.log("Gemini API result:", result);
-
+  
       const resultText = await result.response.text();
       console.log("Gemini API response text:", resultText);
-
+  
       const cleaned = resultText
         .replace(/^```(?:json)?\n/, "")
         .replace(/```$/, "")
         .trim();
       console.log("Cleaned Gemini API text:", cleaned);
-
+  
       const tableData = JSON.parse(cleaned);
       pages[index].ocrTable = tableData.table || tableData;
       pages[index].ocrText = null;
     } catch (error) {
       console.error("Gemini API error:", error);
     }
-
+  
     pages[index].geminiInProgress = false;
     updatePage(index);
   }
@@ -278,10 +299,10 @@
 
 <!-- PDF Pages -->
 {#if pages.length > 0}
-  <div class="container mx-auto mt-8">
+  <div class="container mx-auto mt-8 space-y-6">
     <h2 class="text-2xl font-bold mb-4">PDF Pages</h2>
     {#each pages as page, index}
-      <div class="card bg-base-100 shadow mb-6 p-4 flex flex-col md:flex-row gap-4">
+      <div class="card bg-base-100 shadow p-4 flex flex-col md:flex-row gap-4">
         <!-- Left Column: Image and OCR Action -->
         <div class="md:w-1/2">
           <h3 class="text-xl font-semibold mb-2">Page {index + 1}</h3>
@@ -299,61 +320,82 @@
               on:mouseup="{(e) => canvasMouseUp(index, e)}"
             ></canvas>
           </div>
-          <button class="btn btn-primary mt-4 w-full" on:click="{() => runOCR(index)}" disabled="{page.ocrInProgress || page.geminiInProgress}">
+          <button class="btn btn-primary mt-4 " on:click="{() => runOCR(index)}" disabled="{page.ocrInProgress || page.geminiInProgress}">
             {page.ocrInProgress || page.geminiInProgress ? "Processing..." : "Run OCR & Convert"}
           </button>
         </div>
-        <!-- Right Column: Schema Form and Editable Table -->
-        <div class="md:w-1/2">
-          <h4 class="text-lg font-semibold mb-2">Schema for this Table</h4>
-          <div class="form-control mb-4">
-            <label class="label">
-              <span class="label-text">Table Name</span>
-            </label>
-            <input type="text" class="input input-bordered" bind:value="{page.schema.tableName}" />
+        <!-- Right Column: Schema Form, Editable Table, and CSV Toggle -->
+        <div class="md:w-1/2 space-y-4">
+          <div class="card bg-base-200 p-4">
+            <h4 class="text-lg font-semibold mb-2">Schema for this Table</h4>
+            <div class="form-control mb-4">
+              <label class="label">
+                <span class="label-text">Table Name</span>
+              </label>
+              <input type="text" class="input input-bordered" bind:value="{page.schema.tableName}" />
+            </div>
+            <div class="mb-4">
+              <h5 class="font-semibold mb-2">Columns</h5>
+              {#each page.schema.columns as col, colIndex}
+                <div class="flex gap-2 mb-2">
+                  <input type="text" placeholder="Column Name" class="input input-bordered flex-1" bind:value="{col.name}" on:input="{(e) => updateColumn(index, colIndex, 'name', e.target.value)}" />
+                  <select class="select select-bordered" bind:value="{col.type}" on:change="{(e) => updateColumn(index, colIndex, 'type', e.target.value)}">
+                    <option value="VARCHAR">VARCHAR</option>
+                    <option value="FLOAT">FLOAT</option>
+                    <option value="INT">INT</option>
+                  </select>
+                </div>
+              {/each}
+              <button class="btn btn-sm btn-outline" type="button" on:click="{() => addColumn(index)}">Add Column</button>
+              <button class="btn btn-ghost btn-sm" on:click="{() => toggleViewMode(index)}">
+                {#if page.viewMode=="table"}
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-table" viewBox="0 0 16 16">
+                  <path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm15 2h-4v3h4zm0 4h-4v3h4zm0 4h-4v3h3a1 1 0 0 0 1-1zm-5 3v-3H6v3zm-5 0v-3H1v2a1 1 0 0 0 1 1zm-4-4h4V8H1zm0-4h4V4H1zm5-3v3h4V4zm4 4H6v3h4z"/>
+                </svg>
+                {:else}
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-card-text" viewBox="0 0 16 16">
+                  <path d="M14.5 3a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5zm-13-1A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 14.5 2z"/>
+                  <path d="M3 5.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5M3 8a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9A.5.5 0 0 1 3 8m0 2.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5"/>
+                </svg>
+                {/if}
+              </button>
+            </div>
+            <!-- Toggle for view mode -->
+             
           </div>
-          <div class="mb-4">
-            <h5 class="font-semibold">Columns</h5>
-            {#each page.schema.columns as col, colIndex}
-              <div class="flex gap-2 mb-2">
-                <input type="text" placeholder="Column Name" class="input input-bordered flex-1" bind:value="{col.name}" on:input="{(e) => updateColumn(index, colIndex, 'name', e.target.value)}" />
-                <select class="select select-bordered" bind:value="{col.type}" on:change="{(e) => updateColumn(index, colIndex, 'type', e.target.value)}">
-                  <option value="VARCHAR">VARCHAR</option>
-                  <option value="FLOAT">FLOAT</option>
-                  <option value="INT">INT</option>
-                </select>
-              </div>
-            {/each}
-            <button class="btn btn-sm btn-outline" type="button" on:click="{() => addColumn(index)}">Add Column</button>
-          </div>
-          <h4 class="text-lg font-semibold mb-2">Extracted Table Data / OCR Text</h4>
-          <div class="max-h-80 overflow-y-auto border border-base-300 p-2">
-            {#if getTableData(page) && Array.isArray(getTableData(page)) && getTableData(page).length > 0}
-              <table class="table w-full">
-                <thead>
-                  <tr>
-                    {#each Object.keys(getTableData(page)[0]) as headerCell}
-                      <th>{headerCell}</th>
-                    {/each}
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each getTableData(page) as row, rowIndex}
+          <div class="card bg-base-200 p-4 max-h-80 overflow-y-auto">
+            <h4 class="text-lg font-semibold mb-2">Extracted Table Data / OCR Text</h4>
+            {#if page.viewMode === "table"}
+              {#if getTableData(page) && Array.isArray(getTableData(page)) && getTableData(page).length > 0}
+                <table class="table w-full">
+                  <thead>
                     <tr>
-                      {#each Object.keys(getTableData(page)[0]) as key}
-                        <td>
-                          <input type="text" class="input input-sm input-bordered w-full" bind:value={row[key]} on:change={() => updatePage(index)} />
-                        </td>
+                      {#each Object.keys(getTableData(page)[0]) as headerCell}
+                        <th>{headerCell}</th>
                       {/each}
                     </tr>
-                  {/each}
-                </tbody>
-              </table>
-            {:else if page.ocrText}
-              <p class="text-sm">Extracted OCR Text:</p>
-              <pre class="text-xs whitespace-pre-wrap">{page.ocrText}</pre>
+                  </thead>
+                  <tbody>
+                    {#each getTableData(page) as row, rowIndex}
+                      <tr>
+                        {#each Object.keys(getTableData(page)[0]) as key}
+                          <td>
+                            <input type="text" class="input input-sm input-bordered w-full" bind:value={row[key]} on:change={() => updatePage(index)} />
+                          </td>
+                        {/each}
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+          
+              {:else}
+                <p class="text-sm">No data extracted yet.</p>
+              {/if}
             {:else}
-              <p class="text-sm">No data extracted yet.</p>
+              <!-- CSV view -->
+              {#if getTableData(page) && Array.isArray(getTableData(page)) && getTableData(page).length > 0}
+                <textarea class="textarea textarea-bordered w-full h-40" readonly>{tableToCSV(getTableData(page))}</textarea>
+              {/if}
             {/if}
           </div>
         </div>
