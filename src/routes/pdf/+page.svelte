@@ -7,13 +7,23 @@
   let pdfjsLib;
   let pages = [];
 
+  // Helper: Extract table data from Gemini response.
+  function getTableData(page) {
+    if (page.ocrTable && typeof page.ocrTable === 'object' && !Array.isArray(page.ocrTable)) {
+      const keys = Object.keys(page.ocrTable);
+      if (keys.length === 1) {
+        return page.ocrTable[keys[0]];
+      }
+    }
+    return page.ocrTable;
+  }
+
   // Reactive block to redraw drawn bounding boxes.
   $: {
-    pages.forEach((page, index) => {
+    pages.forEach((page) => {
       if (page.canvasElement) {
-        const canvas = page.canvasElement;
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const ctx = page.canvasElement.getContext('2d');
+        ctx.clearRect(0, 0, page.canvasElement.width, page.canvasElement.height);
         let x, y, w, h;
         if (page.isDrawing) {
           x = Math.min(page.startX, page.currentX);
@@ -46,7 +56,7 @@
   async function handleFileChange(event) {
     const file = event.target.files[0];
     if (!file) return;
-  
+
     const fileReader = new FileReader();
     fileReader.onload = async function () {
       const typedarray = new Uint8Array(this.result);
@@ -54,7 +64,6 @@
         const pdf = await pdfjsLib.getDocument(typedarray).promise;
         pages = [];
         const scale = 2.0;
-  
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
           const viewport = page.getViewport({ scale });
@@ -64,14 +73,14 @@
           const context = canvas.getContext('2d');
           await page.render({ canvasContext: context, viewport }).promise;
           const imageURL = canvas.toDataURL();
-  
+
           pages = [
             ...pages,
             {
               imageURL,
-              ocrTable: null,   // Parsed table data will be stored here.
-              ocrText: null,    // Raw OCR text if needed.
-              ocrData: null,    // Full OCR metadata.
+              ocrTable: null,
+              ocrText: null,
+              ocrData: null,
               ocrInProgress: false,
               geminiInProgress: false,
               boundingBox: null,
@@ -84,6 +93,11 @@
               height: viewport.height,
               displayScale: 1,
               canvasElement: null,
+              // Schema: default table name and empty columns.
+              schema: {
+                tableName: `table_${i}`,
+                columns: []
+              }
             }
           ];
         }
@@ -104,7 +118,7 @@
     pages[index].currentY = pages[index].startY;
     updatePage(index);
   }
-  
+
   function canvasMouseMove(index, event) {
     if (!pages[index].isDrawing) return;
     const rect = event.target.getBoundingClientRect();
@@ -112,7 +126,7 @@
     pages[index].currentY = event.clientY - rect.top;
     updatePage(index);
   }
-  
+
   function canvasMouseUp(index, event) {
     if (!pages[index].isDrawing) return;
     pages[index].isDrawing = false;
@@ -123,83 +137,31 @@
     pages[index].boundingBox = { x, y, width, height };
     updatePage(index);
   }
-  
+
   function updatePage(index) {
     pages = pages.map((p, i) => (i === index ? { ...p } : p));
   }
-  
-  // Custom table parser (if needed).
-  function parseTableFromText(text) {
-    if (!text || !text.trim()) return null;
-    let cells = text.split(/\n\n/).map(s => s.trim()).filter(s => s.length > 0);
-    const n = cells.length;
-    if (n === 0) return null;
-  
-    let candidates = [];
-    for (let r = 1; r <= n; r++) {
-      if (n % r === 0) {
-        let c = n / r;
-        candidates.push({ rows: r, cols: c });
-      }
-    }
-  
-    function detectType(s) {
-      return isNaN(parseFloat(s)) ? "text" : "number";
-    }
-  
-    function scoreCandidate(rows, cols) {
-      let table = [];
-      for (let i = 0; i < rows; i++) {
-        let row = [];
-        for (let j = 0; j < cols; j++) {
-          row.push(cells[i * cols + j]);
-        }
-        table.push(row);
-      }
-      let score = 0;
-      for (let j = 0; j < cols; j++) {
-        let types = table.map(row => detectType(row[j]));
-        let freq = {};
-        types.forEach(t => { freq[t] = (freq[t] || 0) + 1; });
-        let maxFreq = Math.max(...Object.values(freq));
-        score += maxFreq / rows;
-      }
-      return score / cols;
-    }
-  
-    let bestCandidate = null;
-    let bestScore = -Infinity;
-    for (const cand of candidates) {
-      let s = scoreCandidate(cand.rows, cand.cols);
-      if (s > bestScore) {
-        bestScore = s;
-        bestCandidate = cand;
-      }
-    }
-  
-    if (!bestCandidate) return null;
-  
-    let table = [];
-    for (let i = 0; i < bestCandidate.rows; i++) {
-      let row = [];
-      for (let j = 0; j < bestCandidate.cols; j++) {
-        row.push(cells[i * bestCandidate.cols + j]);
-      }
-      table.push(row);
-    }
-  
-    return table;
+
+  // Schema form functions.
+  function addColumn(index) {
+    pages[index].schema.columns = [...pages[index].schema.columns, { name: "", type: "VARCHAR" }];
+    updatePage(index);
   }
-  
-  // Combined OCR and Gemini call.
+
+  function updateColumn(index, colIndex, field, value) {
+    pages[index].schema.columns[colIndex][field] = value;
+    updatePage(index);
+  }
+
+  // Combined OCR & Gemini function.
   async function runOCR(index) {
     pages[index].ocrInProgress = true;
     updatePage(index);
     const worker = await createWorker('eng');
     await worker.setParameters({
-      tessedit_pageseg_mode: 3  // PSM.AUTO
+      tessedit_pageseg_mode: 3
     });
-  
+
     let imageToProcess = pages[index].imageURL;
     if (pages[index].boundingBox) {
       const img = new Image();
@@ -213,14 +175,14 @@
       offCanvas.height = pages[index].height;
       const offCtx = offCanvas.getContext('2d');
       offCtx.drawImage(img, 0, 0);
-  
+
       const scaleFactor = pages[index].displayScale;
       const bb = pages[index].boundingBox;
       const cropX = bb.x * scaleFactor;
       const cropY = bb.y * scaleFactor;
       const cropWidth = bb.width * scaleFactor;
       const cropHeight = bb.height * scaleFactor;
-  
+
       const cropCanvas = document.createElement('canvas');
       cropCanvas.width = cropWidth;
       cropCanvas.height = cropHeight;
@@ -228,37 +190,47 @@
       cropCtx.drawImage(offCanvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
       imageToProcess = cropCanvas.toDataURL();
     }
-  
-    // Run OCR with TSV output.
-    const { data } = await worker.recognize(imageToProcess, {
-      tessjs_create_tsv: '1'
-    });
-  
-    // Store the complete OCR data.
+
+    // Run OCR.
+    const { data } = await worker.recognize(imageToProcess, { tessjs_create_tsv: '1' });
     pages[index].ocrData = data;
-  
-    // We'll use the raw OCR text as input for Gemini.
     const ocrText = data.text;
     pages[index].ocrText = ocrText;
-  
-    // Clean up OCR state.
     pages[index].ocrInProgress = false;
     await worker.terminate();
     updatePage(index);
-  
-    // Now push the OCR text to Gemini.
+
+    // Build Gemini prompt (append schema info if provided).
+    let prompt = ocrText;
+    const schema = pages[index].schema;
+    if (schema) {
+      if (schema.columns && schema.columns.length > 0) {
+        const colsText = schema.columns
+          .filter(col => col.name.trim() !== "")
+          .map(col => `${col.name.trim()}(${col.type})`)
+          .join(", ");
+        if (colsText) {
+          prompt += `\nThe columns I want are ${colsText}. The Data should be stored under the key: ${schema.tableName}.`;
+        } else {
+          prompt += `\nThe table name is ${schema.tableName}.`;
+        }
+      } else if (schema.tableName.trim() !== "") {
+        prompt += `\nThe table name is ${schema.tableName}.`;
+      }
+    }
+
+    // Push prompt to Gemini.
     pages[index].geminiInProgress = true;
     updatePage(index);
     try {
       const apiKey = PUBLIC_GEMINI_KEY;
       const genAI = new GoogleGenerativeAI(apiKey);
-  
       const model = genAI.getGenerativeModel({
         model: "gemini-2.0-flash-exp",
         systemInstruction:
           "Please turn the following text which was extracted from a table using OCR back into a table structure. Please return the updated response as a JSON object with no further commentary.",
       });
-  
+
       const generationConfig = {
         temperature: 1,
         topP: 0.95,
@@ -266,132 +238,126 @@
         maxOutputTokens: 8192,
         responseMimeType: "text/plain",
       };
-  
+
       const chatSession = model.startChat({
         generationConfig,
         history: [],
       });
-  
-      const result = await chatSession.sendMessage(ocrText);
-  
-  
+
+      const result = await chatSession.sendMessage(prompt);
+      console.log("Gemini API result:", result);
+
       const resultText = await result.response.text();
-  
+      console.log("Gemini API response text:", resultText);
+
       const cleaned = resultText
         .replace(/^```(?:json)?\n/, "")
         .replace(/```$/, "")
         .trim();
-  
-      // Parse the JSON.
+      console.log("Cleaned Gemini API text:", cleaned);
+
       const tableData = JSON.parse(cleaned);
-      // If the API returns an object with a table property, use that.
       pages[index].ocrTable = tableData.table || tableData;
       pages[index].ocrText = null;
     } catch (error) {
       console.error("Gemini API error:", error);
     }
-  
+
     pages[index].geminiInProgress = false;
     updatePage(index);
   }
 </script>
-  
-<div>
-  <h2>Upload a PDF</h2>
-  <input type="file" accept="application/pdf" on:change="{handleFileChange}" />
+
+<!-- Upload Screen -->
+<div class="flex justify-center mt-8">
+  <div class="card shadow-lg bg-base-200 p-6 max-w-md w-full">
+    <h2 class="card-title text-center mb-4">Upload a PDF</h2>
+    <input type="file" accept="application/pdf" class="file-input file-input-bordered w-full" on:change="{handleFileChange}" />
+  </div>
 </div>
-  
+
+<!-- PDF Pages -->
 {#if pages.length > 0}
-  <h2>PDF Pages</h2>
-  {#each pages as page, index}
-    <div class="page">
-      <!-- Left Column: Image with overlay and OCR action -->
-      <div class="left-column">
-        <h3>Page {index + 1}</h3>
-        <div class="image-container" style="position: relative; width: 100%; max-width: 600px;">
-          <img
-            src="{page.imageURL}"
-            alt="PDF Page {index + 1}"
-            on:load="{(e) => {
-              page.displayScale = page.width / e.target.clientWidth;
-              updatePage(index);
-            }}"
-            style="display: block; width: 100%;"
-          />
-          <canvas
-            class="overlay"
-            width="{page.width / page.displayScale}"
-            height="{page.height / page.displayScale}"
-            bind:this="{page.canvasElement}"
-            on:mousedown="{(e) => canvasMouseDown(index, e)}"
-            on:mousemove="{(e) => canvasMouseMove(index, e)}"
-            on:mouseup="{(e) => canvasMouseUp(index, e)}"
-            style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto;"
-          ></canvas>
+  <div class="container mx-auto mt-8">
+    <h2 class="text-2xl font-bold mb-4">PDF Pages</h2>
+    {#each pages as page, index}
+      <div class="card bg-base-100 shadow mb-6 p-4 flex flex-col md:flex-row gap-4">
+        <!-- Left Column: Image and OCR Action -->
+        <div class="md:w-1/2">
+          <h3 class="text-xl font-semibold mb-2">Page {index + 1}</h3>
+          <div class="relative max-w-full md:max-w-lg">
+            <img src="{page.imageURL}" alt="PDF Page {index + 1}" 
+              class="w-full object-contain" 
+              on:load="{(e) => { page.displayScale = page.width / e.target.clientWidth; updatePage(index); }}" />
+            <canvas 
+              class="overlay absolute top-0 left-0 w-full h-full pointer-events-auto"
+              width="{page.width / page.displayScale}"
+              height="{page.height / page.displayScale}"
+              bind:this="{page.canvasElement}"
+              on:mousedown="{(e) => canvasMouseDown(index, e)}"
+              on:mousemove="{(e) => canvasMouseMove(index, e)}"
+              on:mouseup="{(e) => canvasMouseUp(index, e)}"
+            ></canvas>
+          </div>
+          <button class="btn btn-primary mt-4 w-full" on:click="{() => runOCR(index)}" disabled="{page.ocrInProgress || page.geminiInProgress}">
+            {page.ocrInProgress || page.geminiInProgress ? "Processing..." : "Run OCR & Convert"}
+          </button>
         </div>
-        <button on:click="{() => runOCR(index)}" disabled="{page.ocrInProgress || page.geminiInProgress}">
-          {page.ocrInProgress || page.geminiInProgress ? "Processing..." : "Run OCR & Convert"}
-        </button>
-      </div>
-  
-      <!-- Right Column: Display extracted table or raw OCR text -->
-      <div class="right-column">
-        <h4>Extracted Table Data / OCR Text</h4>
-        {#if page.ocrTable}
-          <table border="1">
-            <thead>
-              <tr>
-                {#each Object.keys(page.ocrTable[0]) as headerCell}
-                  <th>{headerCell}</th>
-                {/each}
-              </tr>
-            </thead>
-            <tbody>
-              {#each page.ocrTable as row}
-                <tr>
-                  {#each Object.values(row) as cell}
-                    <td>{cell}</td>
+        <!-- Right Column: Schema Form and Editable Table -->
+        <div class="md:w-1/2">
+          <h4 class="text-lg font-semibold mb-2">Schema for this Table</h4>
+          <div class="form-control mb-4">
+            <label class="label">
+              <span class="label-text">Table Name</span>
+            </label>
+            <input type="text" class="input input-bordered" bind:value="{page.schema.tableName}" />
+          </div>
+          <div class="mb-4">
+            <h5 class="font-semibold">Columns</h5>
+            {#each page.schema.columns as col, colIndex}
+              <div class="flex gap-2 mb-2">
+                <input type="text" placeholder="Column Name" class="input input-bordered flex-1" bind:value="{col.name}" on:input="{(e) => updateColumn(index, colIndex, 'name', e.target.value)}" />
+                <select class="select select-bordered" bind:value="{col.type}" on:change="{(e) => updateColumn(index, colIndex, 'type', e.target.value)}">
+                  <option value="VARCHAR">VARCHAR</option>
+                  <option value="FLOAT">FLOAT</option>
+                  <option value="INT">INT</option>
+                </select>
+              </div>
+            {/each}
+            <button class="btn btn-sm btn-outline" type="button" on:click="{() => addColumn(index)}">Add Column</button>
+          </div>
+          <h4 class="text-lg font-semibold mb-2">Extracted Table Data / OCR Text</h4>
+          <div class="max-h-80 overflow-y-auto border border-base-300 p-2">
+            {#if getTableData(page) && Array.isArray(getTableData(page)) && getTableData(page).length > 0}
+              <table class="table w-full">
+                <thead>
+                  <tr>
+                    {#each Object.keys(getTableData(page)[0]) as headerCell}
+                      <th>{headerCell}</th>
+                    {/each}
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each getTableData(page) as row, rowIndex}
+                    <tr>
+                      {#each Object.keys(getTableData(page)[0]) as key}
+                        <td>
+                          <input type="text" class="input input-sm input-bordered w-full" bind:value={row[key]} on:change={() => updatePage(index)} />
+                        </td>
+                      {/each}
+                    </tr>
                   {/each}
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {:else if page.ocrText}
-          <p>Extracted OCR Text:</p>
-          <pre>{page.ocrText}</pre>
-        {:else}
-          <p>No data extracted yet.</p>
-        {/if}
+                </tbody>
+              </table>
+            {:else if page.ocrText}
+              <p class="text-sm">Extracted OCR Text:</p>
+              <pre class="text-xs whitespace-pre-wrap">{page.ocrText}</pre>
+            {:else}
+              <p class="text-sm">No data extracted yet.</p>
+            {/if}
+          </div>
+        </div>
       </div>
-    </div>
-  {/each}
+    {/each}
+  </div>
 {/if}
-  
-<style>
-  .page {
-    display: flex;
-    border: 1px solid #ccc;
-    padding: 1rem;
-    margin-bottom: 2rem;
-    gap: 1rem;
-  }
-  .left-column,
-  .right-column {
-    flex: 1;
-  }
-  .image-container {
-    position: relative;
-    margin-bottom: 1rem;
-  }
-  .overlay {
-    background: transparent;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  th, td {
-    padding: 4px;
-    text-align: left;
-  }
-</style>
