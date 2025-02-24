@@ -11,7 +11,7 @@
 	let testsData = null;
 	let showValidation = false; // controls visibility of tests section
 
-	// Schemas (persisted in localStorage)
+	// Schemas (persisted in localStorage) for PDF extraction
 	let schemas = [];
 	let selectedSchemaIndex = -1;
 
@@ -26,6 +26,13 @@
 		columns: [{ name: '', type: 'VARCHAR' }],
 		comments: '',
 		validations: ''
+	};
+
+	// Hard-coded xref mapping.
+	// Key is a pattern and value is a template for the destination path.
+	// For example: for files like "example_*.csv" the destination will be "{yyyy}/{mm}/{dd}/example_*.csv"
+	const xref = {
+		"example_*.csv": "{yyyy}/{mm}/{dd}/example_*.csv"
 	};
 
 	// Load schemas from localStorage on mount
@@ -43,7 +50,7 @@
 	// Add new column to newSchema form
 	function addColumn() {
 		newSchema.columns.push({ name: '', type: 'VARCHAR' });
-    newSchema=newSchema
+		newSchema = newSchema;
 	}
 
 	// Save new schema or update existing schema
@@ -55,7 +62,7 @@
 		} else {
 			// Add new schema.
 			schemas.push({ ...newSchema });
-      schemas=schemas
+			schemas = schemas;
 		}
 		saveSchemas();
 		newSchemaModal = false;
@@ -74,15 +81,64 @@
 		file = event.target.files[0];
 	}
 
-	// Function to upload the file and extract content via Gemini.
-	async function extractPDF() {
+	// Unified extraction function that routes based on file type.
+	async function extractFile() {
 		if (!file) return;
+		// Reset state.
 		extractionInProgress = true;
 		streamBuffer = '';
 		tableRows = [];
 		testsData = null;
 		showValidation = false;
 
+		// Determine file type by extension.
+		const fileName = file.name.toLowerCase();
+		if (fileName.endsWith('.csv')) {
+			await extractCSV();
+		} else if (fileName.endsWith('.pdf')) {
+			await extractPDF();
+		} else {
+			console.error('Unsupported file type');
+			extractionInProgress = false;
+		}
+	}
+
+	// Function to extract CSV data.
+	async function extractCSV() {
+		try {
+			const reader = new FileReader();
+			reader.onload = function (e) {
+				const text = e.target.result;
+				// Split the CSV into non-empty lines.
+				const lines = text.split('\n').filter(line => line.trim() !== '');
+				if (lines.length === 0) return;
+				
+				// Assume the first line is the header.
+				const headers = lines[0].split(',').map(header => header.trim());
+				// Process each row into an object.
+				tableRows = lines.slice(1).map(line => {
+					const values = line.split(',').map(value => value.trim());
+					let rowObj = {};
+					headers.forEach((header, index) => {
+						rowObj[header] = values[index] || '';
+					});
+					return rowObj;
+				});
+				extractionInProgress = false;
+			};
+			reader.onerror = function (err) {
+				console.error('Error reading CSV:', err);
+				extractionInProgress = false;
+			};
+			reader.readAsText(file);
+		} catch (error) {
+			console.error('Extraction error:', error);
+			extractionInProgress = false;
+		}
+	}
+
+	// Function to extract PDF data using Gemini (PDF extraction remains the same).
+	async function extractPDF() {
 		try {
 			// Create FormData and append the file.
 			const formData = new FormData();
@@ -99,10 +155,7 @@
 			}
 
 			// Build the Gemini message history using the selected schema (if any)
-			let promptBase = '';
-
-			promptBase += `Please extract the holdings table from the attached PDF.
-Extract the following table:`;
+			let promptBase = 'Please extract the holdings table from the attached PDF.\nExtract the following table:';
 
 			if (selectedSchemaIndex >= 0 && schemas[selectedSchemaIndex]) {
 				const schema = schemas[selectedSchemaIndex];
@@ -200,6 +253,86 @@ Extract the following table:`;
 			newSchemaModal = true;
 		}
 	}
+
+	// Generate a CSV string from tableRows.
+	function generateCSV() {
+		if (!tableRows.length) return '';
+		const headers = Object.keys(tableRows[0]);
+		const csvRows = [
+			headers.join(','), // header row
+			...tableRows.map(row => headers.map(header => row[header]).join(','))
+		];
+		return csvRows.join('\n');
+	}
+
+	// Helper to pad numbers.
+	function pad(num) {
+		return num.toString().padStart(2, '0');
+	}
+
+	// Generate destination path based on the xref mapping and current date.
+	function getDestinationPath(fileName) {
+		// Look for a matching pattern.
+		for (const pattern in xref) {
+			// A simple check: if fileName starts with the same prefix (before the asterisk) and ends with the same suffix.
+			const [prefix, suffix] = pattern.split('*');
+			if (fileName.startsWith(prefix) && fileName.endsWith(suffix)) {
+				let template = xref[pattern];
+				const today = new Date();
+				const yyyy = today.getFullYear();
+				const mm = pad(today.getMonth() + 1);
+				const dd = pad(today.getDate());
+				// Replace date tokens.
+				template = template.replace('{yyyy}', yyyy).replace('{mm}', mm).replace('{dd}', dd);
+				// Replace the asterisk with the dynamic portion.
+				// In this example, we assume the dynamic part is everything between the prefix and suffix.
+				const dynamicPart = fileName.substring(prefix.length, fileName.length - suffix.length);
+				template = template.replace('*', dynamicPart);
+				return template;
+			}
+		}
+		// Fallback: return the original file name.
+		return fileName;
+	}
+
+	// Upload the generated CSV to Cloudflare R2.
+	async function uploadCSV() {
+		// Generate CSV content from tableRows.
+		const csvContent = generateCSV();
+		if (!csvContent) {
+			console.error('No data to upload.');
+			return;
+		}
+		// Generate a file name using the pattern "example_YYYY_MM_DD.csv".
+		const today = new Date();
+		const yyyy = today.getFullYear();
+		const mm = pad(today.getMonth() + 1);
+		const dd = pad(today.getDate());
+		const fileName = `example_${yyyy}_${mm}_${dd}.csv`;
+		const destinationPath = getDestinationPath(fileName);
+		console.log('Uploading to:', destinationPath);
+
+		try {
+			// Create a Blob from the CSV string.
+			const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+			const formData = new FormData();
+			formData.append('file', blob, fileName);
+			formData.append('destinationPath', destinationPath);
+
+			// Call your API endpoint that handles the Cloudflare R2 upload.
+			const response = await fetch('/api/r2upload', {
+				method: 'POST',
+				body: formData
+			});
+			const result = await response.json();
+			if (result.error) {
+				throw new Error(result.error);
+			}
+			console.log('Upload successful:', result);
+		} catch (error) {
+			console.error('Upload error:', error);
+		}
+	}
 </script>
 
 <div class="space-y-4 p-4">
@@ -216,18 +349,18 @@ Extract the following table:`;
 	<div class="flex flex-wrap items-end gap-4">
 		<div class="form-control">
 			<label class="label">
-				<span class="label-text">Upload PDF</span>
+				<span class="label-text">Upload PDF or CSV</span>
 			</label>
 			<input
 				type="file"
-				accept="application/pdf"
+				accept=".pdf, application/pdf, .csv, text/csv"
 				class="file-input file-input-bordered"
 				on:change={handleFileChange}
 			/>
 		</div>
 		<div class="form-control">
 			<label class="label">
-				<span class="label-text">Select Schema</span>
+				<span class="label-text">Select Schema (for PDFs)</span>
 			</label>
 			<select bind:value={selectedSchemaIndex} class="select select-bordered">
 				<option value="-1">-- None --</option>
@@ -247,10 +380,15 @@ Extract the following table:`;
 		<div class="form-control">
 			<button
 				class="btn btn-secondary"
-				on:click={extractPDF}
+				on:click={extractFile}
 				disabled={extractionInProgress || !file}
 			>
-				{extractionInProgress ? 'Extracting...' : 'Extract PDF'}
+				{extractionInProgress ? 'Extracting...' : 'Extract File'}
+			</button>
+		</div>
+		<div class="form-control">
+			<button class="btn btn-success" on:click={uploadCSV} disabled={!tableRows.length}>
+				Upload Data to R2
 			</button>
 		</div>
 	</div>
@@ -330,15 +468,14 @@ Extract the following table:`;
 						on:click={() => {
 							newSchemaModal = false;
 							editingSchemaIndex = -1;
-						}}>Cancel</button
-					>
+						}}>Cancel</button>
 					<button class="btn btn-primary" on:click={saveNewSchema}>Save</button>
 				</div>
 			</div>
 		</div>
 	{/if}
 
-	<!-- Display Extracted Table -->
+	<!-- Display Extracted Data -->
 	{#if tableRows.length > 0}
 		<div class="overflow-x-auto">
 			<h3 class="mb-2 text-xl font-bold">Extracted Data</h3>
@@ -363,7 +500,7 @@ Extract the following table:`;
 		</div>
 	{/if}
 
-	<!-- Display Validation Results if toggled -->
+	<!-- Display Validation Results if toggled (PDF only) -->
 	{#if showValidation && testsData}
 		<div class="card bg-base-200 p-4">
 			<h3 class="card-title">Validation Results</h3>
