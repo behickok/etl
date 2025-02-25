@@ -1,14 +1,16 @@
 <script>
-	import { createEventDispatcher } from 'svelte';
-	const dispatch = createEventDispatcher();
+    	import { authStore } from '$lib/store.js';
 	export let activeScreen;
 	
 	function selectScreen(screen) {
 		activeScreen = screen;
 	}
 	
-	function logout() {
-		dispatch('logout');
+    function logout() {
+		// Update the store directly
+		authStore.set({ loggedIn: false, user: null });
+		// Optionally call your SDK's signOut method here as well
+		userbase.signOut();
 	}
 </script>
 

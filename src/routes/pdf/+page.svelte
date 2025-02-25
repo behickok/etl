@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { authStore } from '$lib/store.js';
 	import Auth from './Auth.svelte';
 	import Sidebar from './Sidebar.svelte';
 	import Dashboard from './Dashboard.svelte';
@@ -7,29 +8,24 @@
 	import SchemasManager from './SchemasManager.svelte';
 	
 	// Global authentication state
-	export let loggedIn = false;
-	export let user = null;
+	let loggedIn=false
+	let user=null
 	
 	// Navigation state
 	let activeScreen = 'dashboard';
 	
-	// Listen for login events (could be via events or a shared store)
-	function handleLogin(event) {
-		user = event.detail.user;
-		loggedIn = true;
-	}
+$:{
+		user = $authStore?.user
+		loggedIn = $authStore?.loggedIn
+}
 
-	function handleLogout() {
-		user = null;
-		loggedIn = false;
-	}
 </script>
 
 {#if !loggedIn}
-	<Auth on:login={handleLogin} />
-{:else}
+	<Auth />
+{:else if user}
 	<div class="flex h-screen">
-		<Sidebar bind:activeScreen on:logout={handleLogout} />
+		<Sidebar bind:activeScreen />
 		<main class="flex-1 p-6 overflow-y-auto">
 			{#if activeScreen === 'dashboard'}
 				<Dashboard {user} />

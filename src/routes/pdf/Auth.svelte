@@ -1,13 +1,12 @@
 <script>
-	import { createEventDispatcher } from 'svelte';
 	import { PUBLIC_USERBASE_APP } from '$env/static/public';
-	const dispatch = createEventDispatcher();
-	
+	import { authStore } from '$lib/store.js';
+
 	let authError = '';
 	let authUsername = '';
 	let authPassword = '';
 	let authEmail = '';
-	
+
 	// onMount to initialize Userbase SDK
 	import { onMount } from 'svelte';
 	onMount(() => {
@@ -15,15 +14,18 @@
 			console.error('Userbase SDK not loaded');
 			return;
 		}
-		userbase.init({ appId: PUBLIC_USERBASE_APP })
+		userbase
+			.init({ appId: PUBLIC_USERBASE_APP })
 			.then((session) => {
 				if (session.user) {
-					dispatch('login', { user: session.user });
+					$authStore.user = session.user;
+					$authStore.loggedIn = true;
+					$authStore = $authStore;
 				}
 			})
 			.catch((err) => console.error('Userbase init error:', err));
 	});
-	
+
 	async function signUp() {
 		try {
 			const session = await userbase.signUp({
@@ -32,12 +34,20 @@
 				email: authEmail,
 				rememberMe: 'local'
 			});
-			dispatch('login', { user: session.user });
+			$authStore.user = session;
+			$authStore.loggedIn = true;
+			$authStore = $authStore;
 		} catch (error) {
 			authError = error.message;
 		}
 	}
-	
+
+	function signOut() {
+		userbase.signOut();
+		$authStore.user = null;
+		$authStore.loggedIn = false;
+		$authStore = $authStore;
+	}
 	async function signIn() {
 		try {
 			const session = await userbase.signIn({
@@ -45,20 +55,18 @@
 				password: authPassword,
 				rememberMe: 'local'
 			});
-			dispatch('login', { user: session.user });
+			$authStore.user = session;
+			$authStore.loggedIn = true;
+			$authStore = $authStore;
+            console.log(session)
 		} catch (error) {
 			authError = error.message;
 		}
 	}
-	
-	function signOut() {
-		userbase.signOut();
-		// Optionally, you can also dispatch a logout event here.
-	}
 </script>
 
 <div class="auth-container p-4">
-	<h2 class="text-xl font-bold mb-4">Please Sign In or Sign Up</h2>
+	<h2 class="mb-4 text-xl font-bold">Please Sign In or Sign Up</h2>
 	{#if authError}
 		<div class="error mb-2 text-red-500">{authError}</div>
 	{/if}
@@ -81,6 +89,6 @@
 	</div>
 	<div class="mt-2">
 		<!-- Debug info -->
-		User: {authUsername}<br>
+		User: {authUsername}<br />
 	</div>
 </div>
