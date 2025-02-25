@@ -1,12 +1,20 @@
 <script>
-    	import { authStore } from '$lib/store.js';
+	import { authStore } from '$lib/store.js';
 	export let activeScreen;
 	
+	// Define the menu items as an array of objects
+	const menuItems = [
+		{ label: 'Dashboard', screen: 'dashboard' },
+		{ label: 'Query', screen: 'query' },
+		{ label: 'File Extraction', screen: 'extraction' },
+		{ label: 'Schemas', screen: 'schemas' }
+	];
+
 	function selectScreen(screen) {
 		activeScreen = screen;
 	}
-	
-    function logout() {
+
+	function logout() {
 		// Update the store directly
 		authStore.set({ loggedIn: false, user: null });
 		// Optionally call your SDK's signOut method here as well
@@ -17,21 +25,13 @@
 <nav class="w-64 bg-base-200 p-4">
 	<h3 class="font-bold text-xl mb-4">Menu</h3>
 	<ul class="space-y-2">
-		<li>
-			<button class="btn btn-ghost" on:click={() => selectScreen('dashboard')}>
-				Dashboard
-			</button>
-		</li>
-		<li>
-			<button class="btn btn-ghost" on:click={() => selectScreen('extraction')}>
-				File Extraction
-			</button>
-		</li>
-		<li>
-			<button class="btn btn-ghost" on:click={() => selectScreen('schemas')}>
-				Schemas
-			</button>
-		</li>
+		{#each menuItems as item}
+			<li>
+				<button class="btn btn-ghost" on:click={() => selectScreen(item.screen)}>
+					{item.label}
+				</button>
+			</li>
+		{/each}
 	</ul>
 	<div class="mt-8">
 		<button class="btn btn-outline w-full" on:click={logout}>

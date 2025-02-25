@@ -40,6 +40,7 @@
 	},
 	"dependencies": {
 		"@google/generative-ai": "^0.22.0",
+		"@motherduck/wasm-client": "^0.6.6",
 		"aws-sdk": "^2.1692.0",
 		"pdfjs-dist": "^4.10.38",
 		"tesseract.js": "^6.0.0"
