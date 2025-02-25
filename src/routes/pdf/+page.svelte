@@ -1,3 +1,4 @@
+
 <script>
 	import { onMount } from 'svelte';
 	import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -10,6 +11,9 @@
 	let authUsername = '';
 	let authPassword = '';
 	let authEmail = '';
+
+	// ----- Navigation State -----
+	let activeScreen = 'dashboard'; // other options: 'extraction', 'schemas'
 
 	// Initialize Userbase on mount.
 	onMount(() => {
@@ -72,22 +76,17 @@
 	}
 
 	// ----- File Extraction Code -----
-	// File and extraction state
 	let file = null;
 	let extractionInProgress = false;
 	let streamBuffer = '';
 	let tableRows = [];
 	let testsData = null;
-	let showValidation = false; // controls visibility of tests section
+	let showValidation = false;
 
 	// Schemas (persisted in localStorage) for PDF extraction
 	let schemas = [];
 	let selectedSchemaIndex = -1;
-
-	// For editing an existing schema (-1 means no editing in progress)
 	let editingSchemaIndex = -1;
-
-	// New / edit schema form state
 	let newSchemaModal = false;
 	let newSchema = {
 		schemaName: '',
@@ -97,7 +96,6 @@
 		validations: ''
 	};
 
-	// Hard-coded xref mapping.
 	const xref = {
 		"example_*.csv": "{yyyy}/{mm}/{dd}/example_*.csv"
 	};
@@ -345,8 +343,8 @@
 	}
 </script>
 
-<!-- Display authentication UI if not logged in -->
 {#if !loggedIn}
+	<!-- Authentication UI -->
 	<div class="auth-container p-4">
 		<h2 class="text-xl font-bold mb-4">Please Sign In or Sign Up</h2>
 		{#if authError}
@@ -375,182 +373,239 @@
 		</div>
 	</div>
 {:else}
-	<!-- Main UI when logged in -->
-	<div class="space-y-4 p-4">
-		<div class="flex items-center justify-between">
-			<div></div>
-			<button class="btn btn-outline" on:click={signOut}>Sign Out</button>
-			{#if !extractionInProgress && testsData}
-				<button class="btn btn-info" on:click={() => (showValidation = !showValidation)}>
-					{showValidation ? 'Hide Validation' : 'Show Validation'}
-				</button>
-			{/if}
-		</div>
-
-		<!-- File upload and schema selection -->
-		<div class="flex flex-wrap items-end gap-4">
-			<div class="form-control">
-				<label class="label">
-					<span class="label-text">Upload PDF or CSV</span>
-				</label>
-				<input
-					type="file"
-					accept=".pdf, application/pdf, .csv, text/csv"
-					class="file-input file-input-bordered"
-					on:change={handleFileChange}
-				/>
-			</div>
-			<div class="form-control">
-				<label class="label">
-					<span class="label-text">Select Schema (for PDFs)</span>
-				</label>
-				<select bind:value={selectedSchemaIndex} class="select select-bordered">
-					<option value="-1">-- None --</option>
-					{#each schemas as schema, index}
-						<option value={index}>{schema.schemaName}</option>
-					{/each}
-				</select>
-			</div>
-			{#if selectedSchemaIndex >= 0}
-				<div class="form-control">
-					<button class="btn btn-warning" on:click={editSchema}>Edit Schema</button>
-				</div>
-			{/if}
-			<div class="form-control">
-				<button class="btn btn-primary" on:click={() => (newSchemaModal = true)}>New Schema</button>
-			</div>
-			<div class="form-control">
-				<button
-					class="btn btn-secondary"
-					on:click={extractFile}
-					disabled={extractionInProgress || !file}
-				>
-					{extractionInProgress ? 'Extracting...' : 'Extract File'}
+	<!-- Main UI with Side Menu -->
+	<div class="flex h-screen">
+		<!-- Side Menu -->
+		<nav class="w-64 bg-base-200 p-4">
+			<h3 class="font-bold text-xl mb-4">Menu</h3>
+			<ul class="space-y-2">
+				<li>
+					<button class="btn btn-ghost"
+						on:click={() => (activeScreen = 'dashboard')}>
+						Dashboard
+					</button>
+				</li>
+				<li>
+					<button class="btn btn-ghost"
+						on:click={() => (activeScreen = 'extraction')}>
+						File Extraction
+					</button>
+				</li>
+				<li>
+					<button class="btn btn-ghost"
+						on:click={() => (activeScreen = 'schemas')}>
+						Schemas
+					</button>
+				</li>
+			</ul>
+			<div class="mt-8">
+				<button class="btn btn-outline w-full" on:click={signOut}>
+					Sign Out
 				</button>
 			</div>
-			<div class="form-control">
-				<button class="btn btn-success" on:click={uploadCSV} disabled={!tableRows.length}>
-					Upload Data to R2
-				</button>
-			</div>
-		</div>
+		</nav>
 
-		<!-- New/Edit Schema Modal -->
-		{#if newSchemaModal}
-			<div class="modal modal-open">
-				<div class="modal-box">
-					<h3 class="text-lg font-bold">
-						{editingSchemaIndex !== -1 ? 'Edit Schema' : 'New Schema'}
-					</h3>
-					<div class="form-control mt-4">
-						<label class="label">
-							<span class="label-text">Schema Name</span>
-						</label>
-						<input
-							type="text"
-							bind:value={newSchema.schemaName}
-							class="input input-bordered"
-							placeholder="Enter schema name"
-						/>
+		<!-- Main Content Area -->
+		<main class="flex-1 p-6 overflow-y-auto">
+			{#if activeScreen === 'dashboard'}
+				<!-- Dashboard Screen -->
+				<h1 class="text-3xl font-bold mb-4">Welcome, {user.username}!</h1>
+				<p>This is your dashboard.</p>
+			{:else if activeScreen === 'extraction'}
+				<!-- File Extraction Screen -->
+				<div class="space-y-4">
+					<div class="flex items-center justify-between">
+						{#if !extractionInProgress && testsData}
+							<button class="btn btn-info" on:click={() => (showValidation = !showValidation)}>
+								{showValidation ? 'Hide Validation' : 'Show Validation'}
+							</button>
+						{/if}
 					</div>
-					<div class="form-control mt-4">
-						<label class="label">
-							<span class="label-text">Table Name</span>
-						</label>
-						<input
-							type="text"
-							bind:value={newSchema.tableName}
-							class="input input-bordered"
-							placeholder="Enter table name"
-						/>
-					</div>
-					<div class="mt-4">
-						<label class="label">Columns</label>
-						{#each newSchema.columns as col, i}
-							<div class="mb-2 flex items-center gap-2">
-								<input
-									type="text"
-									bind:value={col.name}
-									placeholder="Column Name"
-									class="input input-bordered flex-1"
-								/>
-								<select bind:value={col.type} class="select select-bordered">
-									<option value="VARCHAR">VARCHAR</option>
-									<option value="INT">INT</option>
-									<option value="FLOAT">FLOAT</option>
-									<option value="DATE">DATE</option>
-								</select>
-							</div>
-						{/each}
-						<button class="btn btn-sm btn-outline" on:click={addColumn}>Add Column</button>
-					</div>
-					<div class="form-control mt-4">
-						<label class="label">
-							<span class="label-text">Comments</span>
-						</label>
-						<textarea
-							bind:value={newSchema.comments}
-							class="textarea textarea-bordered"
-							placeholder="Enter any comments..."
-						></textarea>
-					</div>
-					<div class="form-control mt-4">
-						<label class="label">
-							<span class="label-text">Validation Exceptions</span>
-						</label>
-						<textarea
-							bind:value={newSchema.validations}
-							class="textarea textarea-bordered"
-							placeholder="Enter validations or exceptions to watch for..."
-						></textarea>
-					</div>
-					<div class="modal-action">
-						<button
-							class="btn btn-secondary"
-							on:click={() => {
-								newSchemaModal = false;
-								editingSchemaIndex = -1;
-							}}
-						>
-							Cancel
-						</button>
-						<button class="btn btn-primary" on:click={saveNewSchema}>Save</button>
-					</div>
-				</div>
-			</div>
-		{/if}
-
-		<!-- Display Extracted Data -->
-		{#if tableRows.length > 0}
-			<div class="overflow-x-auto">
-				<h3 class="mb-2 text-xl font-bold">Extracted Data</h3>
-				<table class="table w-full">
-					<thead>
-						<tr>
-							{#each Object.keys(tableRows[0]) as header}
-								<th>{header}</th>
-							{/each}
-						</tr>
-					</thead>
-					<tbody>
-						{#each tableRows as row}
-							<tr>
-								{#each Object.keys(row) as key}
-									<td>{row[key]}</td>
+					<div class="flex flex-wrap items-end gap-4">
+						<div class="form-control">
+							<label class="label">
+								<span class="label-text">Upload PDF or CSV</span>
+							</label>
+							<input
+								type="file"
+								accept=".pdf, application/pdf, .csv, text/csv"
+								class="file-input file-input-bordered"
+								on:change={handleFileChange}
+							/>
+						</div>
+						<div class="form-control">
+							<label class="label">
+								<span class="label-text">Select Schema (for PDFs)</span>
+							</label>
+							<select bind:value={selectedSchemaIndex} class="select select-bordered">
+								<option value="-1">-- None --</option>
+								{#each schemas as schema, index}
+									<option value={index}>{schema.schemaName}</option>
 								{/each}
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
+							</select>
+						</div>
+						{#if selectedSchemaIndex >= 0}
+							<div class="form-control">
+								<button class="btn btn-warning" on:click={editSchema}>Edit Schema</button>
+							</div>
+						{/if}
+						<div class="form-control">
+							<button class="btn btn-primary" on:click={() => (newSchemaModal = true)}>New Schema</button>
+						</div>
+						<div class="form-control">
+							<button
+								class="btn btn-secondary"
+								on:click={extractFile}
+								disabled={extractionInProgress || !file}
+							>
+								{extractionInProgress ? 'Extracting...' : 'Extract File'}
+							</button>
+						</div>
+						<div class="form-control">
+							<button class="btn btn-success" on:click={uploadCSV} disabled={!tableRows.length}>
+								Upload Data to R2
+							</button>
+						</div>
+					</div>
 
-		<!-- Display Validation Results if toggled (PDF only) -->
-		{#if showValidation && testsData}
-			<div class="card bg-base-200 p-4">
-				<h3 class="card-title">Validation Results</h3>
-				<pre class="whitespace-pre-wrap">{JSON.stringify(testsData, null, 2)}</pre>
-			</div>
-		{/if}
+					{#if newSchemaModal}
+						<!-- New/Edit Schema Modal -->
+						<div class="modal modal-open">
+							<div class="modal-box">
+								<h3 class="text-lg font-bold">
+									{editingSchemaIndex !== -1 ? 'Edit Schema' : 'New Schema'}
+								</h3>
+								<div class="form-control mt-4">
+									<label class="label">
+										<span class="label-text">Schema Name</span>
+									</label>
+									<input
+										type="text"
+										bind:value={newSchema.schemaName}
+										class="input input-bordered"
+										placeholder="Enter schema name"
+									/>
+								</div>
+								<div class="form-control mt-4">
+									<label class="label">
+										<span class="label-text">Table Name</span>
+									</label>
+									<input
+										type="text"
+										bind:value={newSchema.tableName}
+										class="input input-bordered"
+										placeholder="Enter table name"
+									/>
+								</div>
+								<div class="mt-4">
+									<label class="label">Columns</label>
+									{#each newSchema.columns as col, i}
+										<div class="mb-2 flex items-center gap-2">
+											<input
+												type="text"
+												bind:value={col.name}
+												placeholder="Column Name"
+												class="input input-bordered flex-1"
+											/>
+											<select bind:value={col.type} class="select select-bordered">
+												<option value="VARCHAR">VARCHAR</option>
+												<option value="INT">INT</option>
+												<option value="FLOAT">FLOAT</option>
+												<option value="DATE">DATE</option>
+											</select>
+										</div>
+									{/each}
+									<button class="btn btn-sm btn-outline" on:click={addColumn}>Add Column</button>
+								</div>
+								<div class="form-control mt-4">
+									<label class="label">
+										<span class="label-text">Comments</span>
+									</label>
+									<textarea
+										bind:value={newSchema.comments}
+										class="textarea textarea-bordered"
+										placeholder="Enter any comments..."
+									></textarea>
+								</div>
+								<div class="form-control mt-4">
+									<label class="label">
+										<span class="label-text">Validation Exceptions</span>
+									</label>
+									<textarea
+										bind:value={newSchema.validations}
+										class="textarea textarea-bordered"
+										placeholder="Enter validations or exceptions to watch for..."
+									></textarea>
+								</div>
+								<div class="modal-action">
+									<button
+										class="btn btn-secondary"
+										on:click={() => {
+											newSchemaModal = false;
+											editingSchemaIndex = -1;
+										}}
+									>
+										Cancel
+									</button>
+									<button class="btn btn-primary" on:click={saveNewSchema}>Save</button>
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					{#if tableRows.length > 0}
+						<div class="overflow-x-auto">
+							<h3 class="mb-2 text-xl font-bold">Extracted Data</h3>
+							<table class="table w-full">
+								<thead>
+									<tr>
+										{#each Object.keys(tableRows[0]) as header}
+											<th>{header}</th>
+										{/each}
+									</tr>
+								</thead>
+								<tbody>
+									{#each tableRows as row}
+										<tr>
+											{#each Object.keys(row) as key}
+												<td>{row[key]}</td>
+											{/each}
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+
+					{#if showValidation && testsData}
+						<div class="card bg-base-200 p-4">
+							<h3 class="card-title">Validation Results</h3>
+							<pre class="whitespace-pre-wrap">{JSON.stringify(testsData, null, 2)}</pre>
+						</div>
+					{/if}
+				</div>
+			{:else if activeScreen === 'schemas'}
+				<!-- Schemas Manager Screen -->
+				<div>
+					<h2 class="text-2xl font-bold mb-4">Manage Schemas</h2>
+					{#if schemas.length === 0}
+						<p>No schemas found. Create one using the "New Schema" button in the File Extraction screen.</p>
+					{:else}
+						<ul class="space-y-2">
+							{#each schemas as schema, index}
+								<li class="p-2 border rounded">
+									<strong>{schema.schemaName}</strong> - {schema.tableName}
+									<button class="btn btn-sm btn-warning ml-2" on:click={() => {
+										selectedSchemaIndex = index;
+										editSchema();
+										activeScreen = 'extraction';
+									}}>Edit</button>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+			{/if}
+		</main>
 	</div>
 {/if}
