@@ -1,14 +1,16 @@
 <script>
+	import { onMount } from 'svelte';
 	import { PUBLIC_USERBASE_APP } from '$env/static/public';
 	import { authStore } from '$lib/store.js';
 
+	// Which form is active: 'signIn' or 'signUp'
+	let activeForm = 'signIn';
 	let authError = '';
 	let authUsername = '';
 	let authPassword = '';
 	let authEmail = '';
+	let authCompany = ''; // New field for company
 
-	// onMount to initialize Userbase SDK
-	import { onMount } from 'svelte';
 	onMount(() => {
 		if (typeof userbase === 'undefined') {
 			console.error('Userbase SDK not loaded');
@@ -18,9 +20,7 @@
 			.init({ appId: PUBLIC_USERBASE_APP })
 			.then((session) => {
 				if (session.user) {
-					$authStore.user = session.user;
-					$authStore.loggedIn = true;
-					$authStore = $authStore;
+					authStore.set({ user: session.user, loggedIn: true });
 				}
 			})
 			.catch((err) => console.error('Userbase init error:', err));
@@ -32,22 +32,16 @@
 				username: authUsername,
 				password: authPassword,
 				email: authEmail,
-				rememberMe: 'local'
+				rememberMe: 'local',
+				// Pass the company field as part of the profile object
+				profile: { company: authCompany }
 			});
-			$authStore.user = session;
-			$authStore.loggedIn = true;
-			$authStore = $authStore;
+			authStore.set({ user: session, loggedIn: true });
 		} catch (error) {
 			authError = error.message;
 		}
 	}
 
-	function signOut() {
-		userbase.signOut();
-		$authStore.user = null;
-		$authStore.loggedIn = false;
-		$authStore = $authStore;
-	}
 	async function signIn() {
 		try {
 			const session = await userbase.signIn({
@@ -55,40 +49,95 @@
 				password: authPassword,
 				rememberMe: 'local'
 			});
-			$authStore.user = session;
-			$authStore.loggedIn = true;
-			$authStore = $authStore;
-            console.log(session)
+			authStore.set({ user: session, loggedIn: true });
+			console.log(session);
 		} catch (error) {
 			authError = error.message;
 		}
 	}
+
+	function signOut() {
+		userbase.signOut();
+		authStore.set({ user: null, loggedIn: false });
+	}
 </script>
 
-<div class="auth-container p-4">
-	<h2 class="mb-4 text-xl font-bold">Please Sign In or Sign Up</h2>
-	{#if authError}
-		<div class="error mb-2 text-red-500">{authError}</div>
-	{/if}
-	<div class="mb-2">
-		<label class="block">Username:</label>
-		<input type="text" bind:value={authUsername} class="input input-bordered w-full" />
-	</div>
-	<div class="mb-2">
-		<label class="block">Password:</label>
-		<input type="password" bind:value={authPassword} class="input input-bordered w-full" />
-	</div>
-	<div class="mb-2">
-		<label class="block">Email (for sign up):</label>
-		<input type="email" bind:value={authEmail} class="input input-bordered w-full" />
-	</div>
-	<div class="flex gap-2">
-		<button class="btn btn-primary" on:click={signIn}>Sign In</button>
-		<button class="btn btn-secondary" on:click={signUp}>Sign Up</button>
-		<button class="btn btn-accent" on:click={signOut}>Sign Out</button>
-	</div>
-	<div class="mt-2">
-		<!-- Debug info -->
-		User: {authUsername}<br />
+<div class="min-h-screen flex items-center justify-center bg-base-200">
+	<div class="w-full max-w-md p-8 bg-base-100 rounded-lg shadow-xl">
+		<!-- <div class="tabs mb-6">
+			<a
+				class="tab tab-bordered {activeForm === 'signIn' ? 'tab-active' : ''}"
+				on:click={() => { activeForm = 'signIn'; authError = ''; }}
+			>
+				Sign In
+			</a>
+			<a
+				class="tab tab-bordered {activeForm === 'signUp' ? 'tab-active' : ''}"
+				on:click={() => { activeForm = 'signUp'; authError = ''; }}
+			>
+				Sign Up
+			</a>
+		</div> -->
+
+		{#if authError}
+			<div class="alert alert-error mb-4">
+				<span>{authError}</span>
+			</div>
+		{/if}
+
+		{#if activeForm === 'signIn'}
+			<form class="space-y-4" on:submit|preventDefault={signIn}>
+				<div>
+					<label class="label">Username</label>
+					<input type="text" bind:value={authUsername} class="input input-bordered w-full" required />
+				</div>
+				<div>
+					<label class="label">Password</label>
+					<input type="password" bind:value={authPassword} class="input input-bordered w-full" required />
+				</div>
+				<div class="flex justify-between">
+					<button type="submit" class="btn btn-primary">Sign In</button>
+					<button type="button" class="btn btn-outline" on:click={signOut}>Sign Out</button>
+				</div>
+			</form>
+		{:else}
+			<!-- Sign Up Form -->
+			<form class="space-y-4" on:submit|preventDefault={signUp}>
+				<div>
+					<label class="label">Username</label>
+					<input type="text" bind:value={authUsername} class="input input-bordered w-full" required />
+				</div>
+				<div>
+					<label class="label">Password</label>
+					<input type="password" bind:value={authPassword} class="input input-bordered w-full" required />
+				</div>
+				<div>
+					<label class="label">Email</label>
+					<input type="email" bind:value={authEmail} class="input input-bordered w-full" required />
+				</div>
+				<div>
+					<label class="label">Company</label>
+					<input type="text" bind:value={authCompany} class="input input-bordered w-full" required />
+				</div>
+				<div class="flex justify-between">
+					<button type="submit" class="btn btn-primary">Sign Up</button>
+					<button type="button" class="btn btn-outline" on:click={signOut}>Sign Out</button>
+				</div>
+			</form>
+		{/if}
+
+		<!-- Toggle Button -->
+		<div class="text-center mt-4">
+			{#if activeForm === 'signIn'}
+				<button class="btn btn-link" on:click={() => { activeForm = 'signUp'; authError = ''; }}>
+					Don't have an account? Sign Up
+				</button>
+			{:else}
+				<button class="btn btn-link" on:click={() => { activeForm = 'signIn'; authError = ''; }}>
+					Already have an account? Sign In
+				</button>
+			{/if}
+		</div>
+
 	</div>
 </div>

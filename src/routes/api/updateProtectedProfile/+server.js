@@ -3,16 +3,17 @@ import { PRIVATE_USERBASE_ADMIN_TOKEN } from '$env/static/private';
 
 /**
  * POST /api/updateProtectedProfile
- * Body: { username: string, client: string }
+ * Body example: { username: "user1", client: "bucket123", role: "Admin" }
  * 
  * This endpoint updates a user's protected profile using the admin token stored in PRIVATE_USERBASE_ADMIN_TOKEN.
+ * All fields besides "username" in the request body are passed as the protectedProfile.
  */
 export async function POST({ request }) {
 	try {
-		const { username, client } = await request.json();
-
-		if (!username || !client) {
-			return json({ error: 'Missing username or client' }, { status: 400 });
+		const payload = await request.json();
+		const { username, ...profileFields } = payload;
+		if (!username) {
+			return json({ error: 'Missing username' }, { status: 400 });
 		}
 
 		// Call Userbase admin endpoint with our private token
@@ -23,7 +24,7 @@ export async function POST({ request }) {
 				'Content-Type': 'application/json'
 			},
 			body: JSON.stringify({
-				protectedProfile: { client }
+				protectedProfile: profileFields
 			})
 		});
 

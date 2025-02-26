@@ -7,12 +7,24 @@
 	export let activeScreen;
 	export let activeItem;
 
-	// Define main menu items
-	const menuItems = [
+	// Define all main menu items
+	const allMenuItems = [
 		{ label: 'Files', screen: 'files' },
 		{ label: 'Query', screen: 'query' },
 		{ label: 'Mapping', screen: 'mapping' }
 	];
+
+	// Reactive variable to determine if user can edit (Admin or Writer)
+	$: canEdit = $authStore.user?.protectedProfile?.role === 'Admin' ||
+	            $authStore.user?.protectedProfile?.role === 'Writer';
+
+	// Filter main menu items based on role: hide "Query" if user cannot edit.
+	$: filteredMenuItems = allMenuItems.filter(item => {
+		if (item.screen === 'query') {
+			return canEdit;
+		}
+		return true;
+	});
 
 	let mappingEntries = [];
 	let domains = [];
@@ -83,15 +95,11 @@
 	<div class="py-4 px-4 overflow-y-auto flex-1">
 		<h3 class="text-xl font-bold mb-4">Menu</h3>
 
-		<!-- Main menu (daisyUI menu) -->
+		<!-- Main menu (using filtered menu items) -->
 		<ul class="menu menu-compact p-0">
-			<!-- Main items -->
-			{#each menuItems as item}
+			{#each filteredMenuItems as item}
 				<li>
-					<button
-						class="justify-start"
-						on:click={() => selectScreen(item)}
-					>
+					<button class="justify-start" on:click={() => selectScreen(item)}>
 						{item.label}
 					</button>
 				</li>
@@ -138,8 +146,6 @@
 			{:else}
 				<li class="pl-4 text-sm text-gray-500">No domains found</li>
 			{/if}
-
-			
 		</ul>
 
 		<!-- Display error if any -->
@@ -148,18 +154,16 @@
 		{/if}
 	</div>
 
-	<!-- Bottom section (Sign Out) -->
-	<div class="p-4 ">
-	
+	<!-- Bottom section (Sign Out & Admin) -->
+	<div class="p-4">
+		{#if $authStore.user.protectedProfile.role === 'Admin'}
 			<button
 				class="btn btn-outline btn-primary w-full my-2"
-				on:click={() =>
-					selectScreen({ label: 'Admin', screen: 'admin' })
-				}
+				on:click={() => selectScreen({ label: 'Admin', screen: 'admin' })}
 			>
 				Admin
 			</button>
-
+		{/if}
 		<button class="btn btn-outline btn-secondary w-full" on:click={logout}>
 			Sign Out
 		</button>

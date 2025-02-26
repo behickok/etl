@@ -1,9 +1,8 @@
 <script>
 	import { onMount } from 'svelte';
-	import { mappingStore } from '$lib/store.js';
+	import { mappingStore, authStore } from '$lib/store.js';
 	import { get } from 'svelte/store';
 	import initMotherDuckConnection from '$lib/MDInit.js';
-		import {authStore} from '$lib/store'
 	import SchemasManager from './SchemasManager.svelte';
 
 	// --- TAB MANAGEMENT ---
@@ -42,12 +41,14 @@
 	let error = '';
 
 	function editRow(row) {
+		if (!canEdit) return;
 		editingRow = row;
 		formData = { ...row };
 		isNew = false;
 	}
 
 	function addNewRow() {
+		if (!canEdit) return;
 		editingRow = {};
 		formData = {};
 		for (const col of defaultColumns) {
@@ -115,7 +116,6 @@
 	}
 
 	// --- REFRESH FUNCTION ---
-	// This function re-fetches the mapping table and updates the mapping store.
 	async function refreshMapping() {
 		try {
 			const connection = await initMotherDuckConnection($authStore.user.protectedProfile.client);
@@ -138,6 +138,10 @@
 			await refreshMapping();
 		}
 	});
+
+	// --- ROLE-BASED ACCESS ---
+	$: canEdit = $authStore.user?.protectedProfile?.role === 'Admin' ||
+	             $authStore.user?.protectedProfile?.role === 'Writer';
 </script>
 
 <div class="p-4">
@@ -169,7 +173,9 @@
 							{#each mappingColumns as col}
 								<th>{col}</th>
 							{/each}
-							<th>Actions</th>
+							{#if canEdit}
+								<th>Actions</th>
+							{/if}
 						</tr>
 					</thead>
 					<tbody>
@@ -178,19 +184,27 @@
 								{#each mappingColumns as col}
 									<td>{row[col]}</td>
 								{/each}
-								<td class="whitespace-nowrap">
-									<button class="btn btn-sm btn-primary mr-2" on:click={() => editRow(row)}>Edit</button>
-									<button class="btn btn-sm btn-error" on:click={() => deleteRow(row)}>Delete</button>
-								</td>
+								{#if canEdit}
+									<td class="whitespace-nowrap">
+										<button class="btn btn-sm btn-primary mr-2" on:click={() => editRow(row)}>
+											Edit
+										</button>
+										<button class="btn btn-sm btn-error" on:click={() => deleteRow(row)}>
+											Delete
+										</button>
+									</td>
+								{/if}
 							</tr>
 						{/each}
 					</tbody>
 				</table>
-				<button class="btn btn-secondary mt-4" on:click={addNewRow}>Add New Row</button>
+				{#if canEdit}
+					<button class="btn btn-secondary mt-4" on:click={addNewRow}>Add New Row</button>
+				{/if}
 			</div>
 
-			<!-- Right: Edit / Add Form -->
-			{#if editingRow !== null}
+			<!-- Right: Edit / Add Form (only visible if user can edit) -->
+			{#if canEdit && editingRow !== null}
 				<div class="flex-1 p-4 border rounded">
 					<h3 class="text-xl font-bold mb-4">{isNew ? "Add New Row" : "Edit Row"}</h3>
 					<form on:submit|preventDefault={updateMapping}>

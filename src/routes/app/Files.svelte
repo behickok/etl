@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import initMotherDuckConnection from '$lib/MDInit.js';
-	import {authStore} from '$lib/store'
+	import { authStore } from '$lib/store';
 	import Extraction from './Extraction.svelte';
 
 	// --- VIEW MODE ---
@@ -41,6 +41,10 @@
 		);
 		return [header, ...csvRows].join('\n');
 	}
+
+	// --- Compute if the current user can perform CRUD operations ---
+	$: canEdit = $authStore.user?.protectedProfile?.role === 'Admin' ||
+	             $authStore.user?.protectedProfile?.role === 'Writer';
 
 	// --- HELPER: Fetch files from the API ---
 	async function fetchFiles() {
@@ -92,7 +96,6 @@
 						typeof value === 'bigint' ? value.toString() : value
 					)
 				);
-
 				queryResultRows = rowsSafe;
 				if (rowsSafe.length > 0) {
 					queryResultColumns = Object.keys(rowsSafe[0]);
@@ -108,7 +111,7 @@
 		}
 	}
 
-	// --- FILE CONTENT: Update cell content on blur (instead of every keystroke) ---
+	// --- FILE CONTENT: Update cell content on blur ---
 	function handleCellBlur(rowIndex, col, event) {
 		editableRows[rowIndex][col] = event.target.innerText;
 	}
@@ -189,7 +192,9 @@
 	<div class="p-4">
 		<div class="flex justify-between items-center mb-4">
 			<h2 class="text-2xl font-bold">File Browser</h2>
+			{#if canEdit}
 			<button class="btn btn-secondary" on:click={openExtraction}>Load</button>
+			{/if}
 		</div>
 
 		{#if fileLoading}
@@ -252,7 +257,7 @@
 		<Extraction />
 	</div>
 
-<!-- VIEW: File Content (Editable) -->
+<!-- VIEW: File Content (Editable or Read-Only) -->
 {:else if viewMode === 'fileContent'}
 	<div class="p-4">
 		<div class="flex justify-between items-center mb-2">
@@ -296,36 +301,37 @@
 							<tr>
 								{#each queryResultColumns as col}
 									<td
-										contenteditable="true"
-										on:blur={(e) => handleCellBlur(rowIndex, col, e)}
+										contenteditable={canEdit ? "true" : "false"}
+										on:blur={(e) => canEdit && handleCellBlur(rowIndex, col, e)}
 									>
 										{row[col]}
 									</td>
 								{/each}
 								<td>
-									<button
-										class="btn btn-sm btn-error"
-										on:click={() => removeRow(rowIndex)}
-									>
-										Delete
-									</button>
+									{#if canEdit}
+										<button class="btn btn-sm btn-error" on:click={() => removeRow(rowIndex)}>
+											Delete
+										</button>
+									{/if}
 								</td>
 							</tr>
 						{/each}
 					</tbody>
 				</table>
 			</div>
-			<div class="flex gap-2">
-				<button class="btn btn-accent" on:click={addRow}>
-					Add Row
-				</button>
-				<button class="btn btn-primary" on:click={updateFile}>
-					Update
-				</button>
-				<button class="btn btn-outline" on:click={downloadCSV}>
-					Download CSV
-				</button>
-			</div>
+			{#if canEdit}
+				<div class="flex gap-2">
+					<button class="btn btn-accent" on:click={addRow}>
+						Add Row
+					</button>
+					<button class="btn btn-primary" on:click={updateFile}>
+						Update
+					</button>
+					<button class="btn btn-outline" on:click={downloadCSV}>
+						Download CSV
+					</button>
+				</div>
+			{/if}
 		{/if}
 	</div>
 {/if}
