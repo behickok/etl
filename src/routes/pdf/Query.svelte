@@ -4,7 +4,7 @@
 	import initMotherDuckConnection from '$lib/MDInit.js';
 
 	let client; // Holds the MotherDuck client instance.
-	let query = 'SELECT * FROM nyc.taxi LIMIT 10;' // The query text entered by the user.
+	let query = 'SELECT * FROM holdings LIMIT 10;' // The query text entered by the user.
 	let resultRows = []; // Array of result rows (each row is an object).
 	let resultColumns = []; // Array of column names.
 	let error = ''; // Holds any error messages.

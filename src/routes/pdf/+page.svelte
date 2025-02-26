@@ -8,26 +8,30 @@
 	import Query from './Query.svelte';
 	import Files from './Files.svelte';
 	import Mapping from './Mapping.svelte';
-	// import other screens as needed
+	import Table from './Table.svelte';
+	// Import additional screens as needed
 
 	// Global authentication state
 	let loggedIn = false;
 	let user = null;
 	
-	// Navigation state
+	// Navigation state: activeScreen and activeItem
 	let activeScreen = 'files';
+	let activeItem = null;
 	
-	// Mapping screen names to components
+	// Mapping screen names to components.
+	// Note: If your Sidebar sets activeScreen to dynamic names like "sources" or "domains",
+	// make sure to handle them here (perhaps using the Mapping component, or additional ones).
 	const screens = {
 		files: Files,
 		extraction: Extraction,
-		query:Query,
-		mapping:Mapping
-
-		// Add additional screens here as needed
+		query: Query,
+		mapping: Mapping,
+		sources: Table,
+		domains: Table
 	};
 
-	// Update authentication state using reactive statements
+	// Update authentication state using reactive statements.
 	$: {
 		user = $authStore?.user;
 		loggedIn = $authStore?.loggedIn;
@@ -38,10 +42,10 @@
 	<Auth />
 {:else if user}
 	<div class="flex h-screen">
-		<Sidebar bind:activeScreen />
+		<Sidebar bind:activeScreen bind:activeItem />
 		<main class="flex-1 p-6 overflow-y-auto">
-			<!-- Dynamically render the active screen -->
-			<svelte:component this={screens[activeScreen]} {user} />
+			<!-- Pass activeItem if your screen needs the parameter -->
+			<svelte:component this={screens[activeScreen]} {user} {activeItem} />
 		</main>
 	</div>
 {/if}
