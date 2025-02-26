@@ -67,6 +67,11 @@
   }
 </style>
 
+<!-- Button in top-right corner to go to the app -->
+<a href="/app" class="btn btn-outline absolute top-4 right-4 z-10">
+  Log In
+</a>
+
 <div class="background">
   <svg viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice" class="w-full h-full">
     <defs>
