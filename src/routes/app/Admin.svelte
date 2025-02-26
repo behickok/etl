@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import {authStore} from '$lib/store'
 	import { PUBLIC_USERBASE_APP } from '$env/static/public';
 	import initMotherDuckConnection from '$lib/MDInit.js';
 
@@ -98,7 +99,7 @@
 	async function loadEnvVars() {
 		envError = '';
 		try {
-			const connection = await initMotherDuckConnection("stratum");
+			const connection = await initMotherDuckConnection($authStore.user.protectedProfile.client);
 			if (!connection) throw new Error("Could not establish connection");
 			const queryResult = await connection.safeEvaluateQuery('SELECT * FROM environment_variables;');
 			if (queryResult?.result) {
@@ -113,7 +114,7 @@
 		envError = '';
 		message = '';
 		try {
-			const connection = await initMotherDuckConnection("stratum");
+			const connection = await initMotherDuckConnection($authStore.user.protectedProfile.client);
 			if (!connection) throw new Error("Could not establish connection");
 
 			if (isEditingNew) {
@@ -146,7 +147,7 @@
 		envError = '';
 		message = '';
 		try {
-			const connection = await initMotherDuckConnection("stratum");
+			const connection = await initMotherDuckConnection($authStore.user.protectedProfile.client);
 			if (!connection) throw new Error("Could not establish connection");
 			const deleteQuery = `
 				DELETE FROM environment_variables

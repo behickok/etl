@@ -3,8 +3,14 @@ import { json } from '@sveltejs/kit';
 import AWS from 'aws-sdk';
 import { PRIVATE_AWS_ACCESS_KEY_ID, PRIVATE_AWS_ENDPOINT_URL, PRIVATE_AWS_SECRET_ACCESS_KEY } from '$env/static/private';
 
-export async function GET() {
+export async function GET({ url }) {
 	try {
+		// Retrieve the "client" parameter from the query string
+		const client = url.searchParams.get('client');
+		if (!client) {
+			throw new Error("Missing client parameter in the query string");
+		}
+
 		// Configure AWS SDK for Cloudflare R2.
 		const s3 = new AWS.S3({
 			endpoint: PRIVATE_AWS_ENDPOINT_URL,
@@ -14,9 +20,8 @@ export async function GET() {
 			signatureVersion: 'v4'
 		});
 
-		// List objects in the bucket "stratum"
 		const params = {
-			Bucket: 'stratum' // your R2 bucket name
+			Bucket: client // Use the client parameter for the bucket name
 		};
 
 		const result = await s3.listObjectsV2(params).promise();

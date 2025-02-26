@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import initMotherDuckConnection from '$lib/MDInit.js';
+	import {authStore} from '$lib/store'
 	import Extraction from './Extraction.svelte';
 
 	// --- VIEW MODE ---
@@ -45,7 +46,7 @@
 	async function fetchFiles() {
 		fileLoading = true;
 		try {
-			const res = await fetch('/api/r2list');
+			const res = await fetch(`/api/r2list?client=${$authStore.user.protectedProfile.client}`);
 			if (!res.ok) {
 				throw new Error('Failed to fetch files');
 			}
@@ -77,7 +78,7 @@
 		editableRows = [];
 
 		try {
-			const sql = `SELECT * FROM read_csv_auto('r2://stratum/${file.key}') LIMIT 100;`;
+			const sql = `SELECT * FROM read_csv_auto('r2://${$authStore.user.protectedProfile.client}/${file.key}') LIMIT 100;`;
 			const connection = await initMotherDuckConnection('sample_data');
 			if (!connection) {
 				throw new Error('Could not establish MotherDuck connection');
@@ -133,6 +134,7 @@
 		const formData = new FormData();
 		formData.append('destinationPath', selectedFile.key);
 		formData.append('file', blob, fileName);
+		formData.append('client', $authStore.user.protectedProfile.client);
 
 		try {
 			const res = await fetch('/api/r2upload', {

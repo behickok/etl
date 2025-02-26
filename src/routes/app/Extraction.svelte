@@ -1,6 +1,9 @@
 <script>
 	import { onMount } from 'svelte';
 	import NewSchemaModal from './NewSchemaModal.svelte';
+	import { mappingStore, authStore } from '$lib/store';
+	// Expect the client to be passed as a prop (e.g. user.protectedProfile.client)
+
 	
 	let file = null;
 	let extractionInProgress = false;
@@ -22,9 +25,9 @@
 		validations: ''
 	};
 	
-	const xref = {
-		"example_*.csv": "{yyyy}/{mm}/{dd}/example_*.csv"
-	};
+	// Assume your mapping table is available as an array of records.
+	// For example:
+
 	
 	onMount(() => {
 		const stored = localStorage.getItem('schemas');
@@ -93,7 +96,9 @@
 		try {
 			const formData = new FormData();
 			formData.append('file', file);
-			const res = await fetch('/api/upload', {
+			// Pass the client (bucket name) via the form data
+			formData.append('client', $authStore.user.protectedProfile.client);
+			const res = await fetch('/api/r2upload', {
 				method: 'POST',
 				body: formData
 			});
@@ -186,70 +191,100 @@
 		}
 	}
 	
-	function generateCSV() {
-		if (!tableRows.length) return '';
-		const headers = Object.keys(tableRows[0]);
-		const csvRows = [
-			headers.join(','), // header row
-			...tableRows.map(row => headers.map(header => row[header]).join(','))
-		];
-		return csvRows.join('\n');
-	}
-	
 	function pad(num) {
 		return num.toString().padStart(2, '0');
 	}
 	
-	function getDestinationPath(fileName) {
-		for (const pattern in xref) {
-			const [prefix, suffix] = pattern.split('*');
-			if (fileName.startsWith(prefix) && fileName.endsWith(suffix)) {
-				let template = xref[pattern];
-				const today = new Date();
-				const yyyy = today.getFullYear();
-				const mm = pad(today.getMonth() + 1);
-				const dd = pad(today.getDate());
-				template = template.replace('{yyyy}', yyyy).replace('{mm}', mm).replace('{dd}', dd);
-				const dynamicPart = fileName.substring(prefix.length, fileName.length - suffix.length);
-				template = template.replace('*', dynamicPart);
-				return template;
-			}
-		}
-		return fileName;
-	}
+  /**
+   * getDestinationPath:
+   * Iterates over the mapping records (from $mappingStore) and checks whether the fileName
+   * matches the mapping's file_name glob pattern.
+   * On a match, it constructs the destination directory by replacing placeholders.
+   * The final destination will be this directory plus the original file name.
+   */
+   function getDestinationPath(fileName) {
+    for (const mapping of $mappingStore) {
+      const globPattern = mapping.file_name; // e.g. "sample.csv" or "sample*.csv"
+      // Convert the glob to a regex. Escape dots then replace '*' with '.*'
+      const regexPattern = '^' + globPattern.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$';
+      const regex = new RegExp(regexPattern, 'i');
+      if (regex.test(fileName)) {
+        let template = mapping.path; // e.g. "{domain}/{source}/{yyyy}/{mm}/{dd}/"
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = pad(today.getMonth() + 1);
+        const dd = pad(today.getDate());
+        // Replace date and static placeholders
+        template = template
+          .replace('{yyyy}', yyyy)
+          .replace('{mm}', mm)
+          .replace('{dd}', dd)
+          .replace('{domain}', mapping.domain)
+          .replace('{source}', mapping.source);
+        
+        // If the glob contains a wildcard, extract the dynamic part (optional)
+        const parts = globPattern.split('*');
+        if (parts.length === 2) {
+          const prefix = parts[0];
+          const suffix = parts[1];
+          const dynamicPart = fileName.substring(prefix.length, fileName.length - suffix.length);
+          template = template.replace('*', dynamicPart);
+        }
+        return template;
+      }
+    }
+    // Fallback if no mapping is found: return an empty string
+    return '';
+  }
 	
-	async function uploadCSV() {
-		const csvContent = generateCSV();
-		if (!csvContent) {
-			console.error('No data to upload.');
-			return;
-		}
-		const today = new Date();
-		const yyyy = today.getFullYear();
-		const mm = pad(today.getMonth() + 1);
-		const dd = pad(today.getDate());
-		const fileName = `example_${yyyy}_${mm}_${dd}.csv`;
-		const destinationPath = getDestinationPath(fileName);
-		console.log('Uploading to:', destinationPath);
-	
-		try {
-			const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-			const formData = new FormData();
-			formData.append('file', blob, fileName);
-			formData.append('destinationPath', destinationPath);
-			const response = await fetch('/api/r2upload', {
-				method: 'POST',
-				body: formData
-			});
-			const result = await response.json();
-			if (result.error) {
-				throw new Error(result.error);
-			}
-			console.log('Upload successful:', result);
-		} catch (error) {
-			console.error('Upload error:', error);
-		}
-	}
+  async function uploadCSV() {
+    const csvContent = generateCSV();
+    if (!csvContent) {
+      console.error('No data to upload.');
+      return;
+    }
+    // Use the original file name (in lowercase) for mapping comparison
+    const originalFileName = file.name.toLowerCase();
+    const destinationDir = getDestinationPath(originalFileName);
+    if (!destinationDir) {
+      console.error('No mapping found for file:', originalFileName);
+      return;
+    }
+    // Append the original file name to the directory to form the full destination path.
+    const destinationPath = destinationDir + originalFileName;
+    console.log('Uploading to:', destinationPath);
+  
+    try {
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const formData = new FormData();
+      formData.append('file', blob, originalFileName);
+      formData.append('destinationPath', destinationPath);
+      // Append the client (bucket name) from the protected profile via authStore.
+      formData.append('client', $authStore.user.protectedProfile.client);
+  
+      const response = await fetch('/api/r2upload', {
+        method: 'POST',
+        body: formData
+      });
+      const result = await response.json();
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      console.log('Upload successful:', result);
+    } catch (error) {
+      console.error('Upload error:', error);
+    }
+  }
+  
+  function generateCSV() {
+    if (!tableRows.length) return '';
+    const headers = Object.keys(tableRows[0]);
+    const csvRows = [
+      headers.join(','), // header row
+      ...tableRows.map(row => headers.map(header => row[header]).join(','))
+    ];
+    return csvRows.join('\n');
+  }
 </script>
 
 <div class="space-y-4">

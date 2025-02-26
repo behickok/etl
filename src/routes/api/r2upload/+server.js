@@ -2,16 +2,17 @@
 import { json } from '@sveltejs/kit';
 import AWS from 'aws-sdk';
 import { PRIVATE_AWS_ACCESS_KEY_ID, PRIVATE_AWS_ENDPOINT_URL, PRIVATE_AWS_SECRET_ACCESS_KEY } from '$env/static/private';
-// SvelteKit endpoints run in Node so you can use Buffer, etc.
+
 export async function POST({ request }) {
 	try {
 		// Parse the form data.
 		const formData = await request.formData();
 		const destinationPath = formData.get('destinationPath');
 		const file = formData.get('file'); // this is a File instance
+		const client = formData.get('client'); // expected to be passed in the form
 
-		if (!file || !destinationPath) {
-			return json({ error: 'File and destinationPath are required.' }, { status: 400 });
+		if (!file || !destinationPath || !client) {
+			return json({ error: 'File, destinationPath, and client are required.' }, { status: 400 });
 		}
 
 		// Convert the file to a Buffer.
@@ -28,7 +29,7 @@ export async function POST({ request }) {
 		});
 
 		const params = {
-			Bucket: "stratum", // your R2 bucket name
+			Bucket: client, // use the client value from form data as the bucket name
 			Key: destinationPath,
 			Body: buffer,
 			ContentType: file.type || 'text/csv'

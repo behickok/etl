@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import initMotherDuckConnection from '$lib/MDInit.js';
-
+	import {authStore} from '$lib/store'
 	export let activeItem;
 
 	let queryResults = [];
@@ -12,7 +12,7 @@
 	async function runQuery() {
 		loading = true;
 		try {
-			const connection = await initMotherDuckConnection("stratum");
+			const connection = await initMotherDuckConnection($authStore.user.protectedProfile.client);
 			const query = `SELECT * FROM ${activeItem.parameter};`;
 			const queryResult = await connection.safeEvaluateQuery(query);
 			if (queryResult && queryResult.result) {

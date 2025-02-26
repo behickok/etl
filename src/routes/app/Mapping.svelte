@@ -3,6 +3,7 @@
 	import { mappingStore } from '$lib/store.js';
 	import { get } from 'svelte/store';
 	import initMotherDuckConnection from '$lib/MDInit.js';
+		import {authStore} from '$lib/store'
 	import SchemasManager from './SchemasManager.svelte';
 
 	// --- TAB MANAGEMENT ---
@@ -59,7 +60,7 @@
 	// --- UPDATE/INSERT/DELETE FUNCTIONS ---
 	async function updateMapping() {
 		try {
-			const connection = await initMotherDuckConnection("stratum");
+			const connection = await initMotherDuckConnection($authStore.user.protectedProfile.client);
 			if (!connection) throw new Error("Connection not available");
 
 			if (!isNew) {
@@ -96,7 +97,7 @@
 
 	async function deleteRow(row) {
 		try {
-			const connection = await initMotherDuckConnection("stratum");
+			const connection = await initMotherDuckConnection($authStore.user.protectedProfile.client);
 			if (!connection) throw new Error("Connection not available");
 			const { source_index, source, domain } = row;
 			const deleteQuery = `
@@ -117,7 +118,7 @@
 	// This function re-fetches the mapping table and updates the mapping store.
 	async function refreshMapping() {
 		try {
-			const connection = await initMotherDuckConnection("stratum");
+			const connection = await initMotherDuckConnection($authStore.user.protectedProfile.client);
 			if (connection) {
 				const query = 'SELECT * FROM mapping;';
 				const queryResult = await connection.safeEvaluateQuery(query);

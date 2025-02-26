@@ -20,7 +20,7 @@
 
 	async function loadMapping() {
 		try {
-			const connection = await initMotherDuckConnection("stratum");
+			const connection = await initMotherDuckConnection($authStore.user.protectedProfile.client);
 			if (connection) {
 				const query = 'SELECT * FROM mapping;';
 				const queryResult = await connection.safeEvaluateQuery(query);

@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	// Adjust the import below based on your actual MotherDuck package name and API.
 	import initMotherDuckConnection from '$lib/MDInit.js';
-
+	import {authStore} from '$lib/store'
 	let client; // Holds the MotherDuck client instance.
 	let query = 'SELECT * FROM holdings LIMIT 10;' // The query text entered by the user.
 	let resultRows = []; // Array of result rows (each row is an object).
@@ -13,7 +13,7 @@
 		error = '';
 		try {
 			console.log('SQL', sql);
-			const connection = await initMotherDuckConnection("stratum");
+			const connection = await initMotherDuckConnection($authStore.user.protectedProfile.client);
 			if (connection) {
 				try {
 					const queryResult = await connection.safeEvaluateQuery(sql);
