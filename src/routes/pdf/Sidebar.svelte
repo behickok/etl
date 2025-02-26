@@ -85,6 +85,7 @@
 
 		<!-- Main menu (daisyUI menu) -->
 		<ul class="menu menu-compact p-0">
+			<!-- Main items -->
 			{#each menuItems as item}
 				<li>
 					<button
@@ -137,6 +138,8 @@
 			{:else}
 				<li class="pl-4 text-sm text-gray-500">No domains found</li>
 			{/if}
+
+			
 		</ul>
 
 		<!-- Display error if any -->
@@ -146,8 +149,18 @@
 	</div>
 
 	<!-- Bottom section (Sign Out) -->
-	<div class="p-4">
-		<button class="btn btn-outline w-full" on:click={logout}>
+	<div class="p-4 ">
+	
+			<button
+				class="btn btn-outline btn-primary w-full my-2"
+				on:click={() =>
+					selectScreen({ label: 'Admin', screen: 'admin' })
+				}
+			>
+				Admin
+			</button>
+
+		<button class="btn btn-outline btn-secondary w-full" on:click={logout}>
 			Sign Out
 		</button>
 	</div>

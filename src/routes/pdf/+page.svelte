@@ -9,6 +9,7 @@
 	import Files from './Files.svelte';
 	import Mapping from './Mapping.svelte';
 	import Table from './Table.svelte';
+	import Admin from './Admin.svelte';
 	// Import additional screens as needed
 
 	// Global authentication state
@@ -28,7 +29,8 @@
 		query: Query,
 		mapping: Mapping,
 		sources: Table,
-		domains: Table
+		domains: Table,
+		admin: Admin
 	};
 
 	// Update authentication state using reactive statements.
