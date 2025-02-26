@@ -13,14 +13,13 @@
 		error = '';
 		try {
 			console.log('SQL', sql);
-			const connection = await initMotherDuckConnection("sample_data");
+			const connection = await initMotherDuckConnection("stratum");
 			if (connection) {
 				try {
 					const queryResult = await connection.safeEvaluateQuery(sql);
 					if (queryResult && queryResult.result) {
 						// Convert to rows and update component state
 						const result = queryResult.result.data.toRows();
-						console.log('Result', result);
 						resultRows = result;
 						// If at least one row is returned, set the columns from its keys
 						if (resultRows.length > 0) {

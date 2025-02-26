@@ -1,25 +1,28 @@
 <script>
 	import { onMount } from 'svelte';
 	import initMotherDuckConnection from '$lib/MDInit.js';
+	import Extraction from './Extraction.svelte';
 
-	// ----- FILE LISTING STATE -----
+	// --- VIEW MODE ---
+	// Modes: 'browser' | 'extraction' | 'fileContent'
+	let viewMode = 'browser';
+
+	// --- FILE BROWSER STATE ---
 	let files = [];
 	let fileError = null;
 	let fileLoading = true;
 
-	// ----- TOGGLE BETWEEN FILE BROWSER & FILE CONTENT VIEW -----
-	let showFileList = true;
-	let selectedFile = null; // Will store the file object once clicked
+	// --- FILE SELECTED FOR EDITING ---
+	let selectedFile = null;
 
-	// ----- MOTHERDUCK QUERY STATE -----
+	// --- MOTHERDUCK QUERY / EDITABLE TABLE STATE ---
 	let queryResultRows = [];
 	let queryResultColumns = [];
 	let queryError = '';
-	let queryLoading = false; // <-- NEW: loading state for queries
+	let queryLoading = false;
+	let editableRows = [];
 
-	/**
-	 * Helper function to parse the "directory path" vs. "file name" from the S3 key
-	 */
+	// --- HELPER: Parse S3 key into directory & file name ---
 	function parsePath(key) {
 		const parts = key.split('/');
 		const fileName = parts.pop();
@@ -27,53 +30,139 @@
 		return { directoryPath, fileName };
 	}
 
-	/**
-	 * Fetch file list on mount (calls /api/r2list instead of /api/listFiles)
-	 */
-	onMount(async () => {
+	// --- HELPER: Convert array of objects to CSV string ---
+	function convertToCSV(rows, columns) {
+		const header = columns.join(',');
+		const csvRows = rows.map(row =>
+			columns
+				.map(col => `"${String(row[col] || '').replace(/"/g, '""')}"`)
+				.join(',')
+		);
+		return [header, ...csvRows].join('\n');
+	}
+
+	// --- HELPER: Fetch files from the API ---
+	async function fetchFiles() {
+		fileLoading = true;
 		try {
 			const res = await fetch('/api/r2list');
 			if (!res.ok) {
 				throw new Error('Failed to fetch files');
 			}
 			const data = await res.json();
-			files = (data.files || []).map((file) => {
+			files = (data.files || []).map(file => {
 				const { directoryPath, fileName } = parsePath(file.key);
-				return {
-					...file,
-					directoryPath,
-					fileName
-				};
+				return { ...file, directoryPath, fileName };
 			});
 		} catch (err) {
 			fileError = err.message;
 		} finally {
 			fileLoading = false;
 		}
+	}
+
+	// --- On component mount, fetch file list ---
+	onMount(() => {
+		fetchFiles();
 	});
 
-	/**
-	 * When a file is clicked, switch to the file content view
-	 * and run a MotherDuck query to read its contents.
-	 */
+	// --- FILE BROWSER: Switch to file content view ---
 	async function viewFileContents(file) {
 		selectedFile = file;
-		showFileList = false;
-		queryLoading = true;   // <-- Mark as loading
+		viewMode = 'fileContent';
+		queryLoading = true;
 		queryError = '';
 		queryResultRows = [];
 		queryResultColumns = [];
+		editableRows = [];
 
-		await runQuery(`SELECT * FROM read_csv_auto('r2://stratum/${file.key}') LIMIT 100;`);
+		try {
+			const sql = `SELECT * FROM read_csv_auto('r2://stratum/${file.key}') LIMIT 100;`;
+			const connection = await initMotherDuckConnection('sample_data');
+			if (!connection) {
+				throw new Error('Could not establish MotherDuck connection');
+			}
+			const queryResponse = await connection.safeEvaluateQuery(sql);
+			if (queryResponse && queryResponse.result) {
+				const rows = queryResponse.result.data.toRows();
+				// Convert BigInt values to strings during JSON serialization.
+				const rowsSafe = JSON.parse(
+					JSON.stringify(rows, (key, value) =>
+						typeof value === 'bigint' ? value.toString() : value
+					)
+				);
 
-		queryLoading = false;  // <-- Done loading
+				queryResultRows = rowsSafe;
+				if (rowsSafe.length > 0) {
+					queryResultColumns = Object.keys(rowsSafe[0]);
+				}
+				// Initialize editableRows as a deep copy.
+				editableRows = JSON.parse(JSON.stringify(rowsSafe));
+			}
+		} catch (err) {
+			console.error('MotherDuck Query Error:', err);
+			queryError = 'Query failed: ' + err.message;
+		} finally {
+			queryLoading = false;
+		}
 	}
 
-	/**
-	 * Return to the file browser
-	 */
+	// --- FILE CONTENT: Update cell content on blur (instead of every keystroke) ---
+	function handleCellBlur(rowIndex, col, event) {
+		editableRows[rowIndex][col] = event.target.innerText;
+	}
+
+	// --- FILE CONTENT: Add a new row ---
+	function addRow() {
+		const newRow = {};
+		queryResultColumns.forEach(col => (newRow[col] = ''));
+		editableRows = [...editableRows, newRow];
+	}
+
+	// --- FILE CONTENT: Remove a row by index ---
+	function removeRow(index) {
+		editableRows = editableRows.filter((_, i) => i !== index);
+	}
+
+	// --- FILE CONTENT: Re-upload updated CSV using /api/r2upload ---
+	async function updateFile() {
+		const csvString = convertToCSV(editableRows, queryResultColumns);
+		const blob = new Blob([csvString], { type: 'text/csv' });
+		const fileName = selectedFile.fileName || 'updated.csv';
+
+		const formData = new FormData();
+		formData.append('destinationPath', selectedFile.key);
+		formData.append('file', blob, fileName);
+
+		try {
+			const res = await fetch('/api/r2upload', {
+				method: 'POST',
+				body: formData
+			});
+			if (!res.ok) {
+				throw new Error('Upload failed.');
+			}
+			alert('File updated successfully.');
+		} catch (err) {
+			alert('Error updating file: ' + err.message);
+		}
+	}
+
+	// --- FILE CONTENT: Download the CSV ---
+	function downloadCSV() {
+		const csvString = convertToCSV(editableRows, queryResultColumns);
+		const blob = new Blob([csvString], { type: 'text/csv' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = selectedFile.fileName || 'download.csv';
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
+	// --- NAVIGATION: Return to File Browser ---
 	function returnToFileBrowser() {
-		showFileList = true;
+		viewMode = 'browser';
 		selectedFile = null;
 		queryResultRows = [];
 		queryResultColumns = [];
@@ -81,36 +170,25 @@
 		queryLoading = false;
 	}
 
-	/**
-	 * Runs a query against MotherDuck
-	 */
-	async function runQuery(sql) {
-		try {
-			const connection = await initMotherDuckConnection("sample_data");
-			if (!connection) {
-				throw new Error("Could not establish MotherDuck connection");
-			}
+	// --- NAVIGATION: Switch to Extraction (Upload) View ---
+	function openExtraction() {
+		viewMode = 'extraction';
+	}
 
-			// Attempt the query
-			const queryResponse = await connection.safeEvaluateQuery(sql);
-			if (queryResponse && queryResponse.result) {
-				const rows = queryResponse.result.data.toRows();
-				queryResultRows = rows;
-				if (rows.length > 0) {
-					queryResultColumns = Object.keys(rows[0]);
-				}
-			}
-		} catch (err) {
-			console.error('MotherDuck Query Error:', err);
-			queryError = 'Query failed: ' + err.message;
-		}
+	// --- NAVIGATION: Return from Extraction to Browser ---
+	async function returnFromExtraction() {
+		viewMode = 'browser';
+		await fetchFiles();
 	}
 </script>
 
-<!-- FILE BROWSER VIEW -->
-{#if showFileList}
+<!-- VIEW: File Browser -->
+{#if viewMode === 'browser'}
 	<div class="p-4">
-		<h2 class="text-2xl font-bold mb-4">File Browser</h2>
+		<div class="flex justify-between items-center mb-4">
+			<h2 class="text-2xl font-bold">File Browser</h2>
+			<button class="btn btn-secondary" on:click={openExtraction}>Load</button>
+		</div>
 
 		{#if fileLoading}
 			<div class="flex items-center">
@@ -134,7 +212,7 @@
 							<th class="bg-base-200">File</th>
 							<th class="bg-base-200">Last Modified</th>
 							<th class="bg-base-200">Size (bytes)</th>
-							<th class="bg-base-200"></th>
+							<th class="bg-base-200">Actions</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -146,7 +224,7 @@
 								<td>{file.size}</td>
 								<td>
 									<button
-										class="btn btn-sm btn-outline"
+										class="btn btn-sm btn-primary"
 										on:click={() => viewFileContents(file)}
 									>
 										View
@@ -160,56 +238,92 @@
 		{/if}
 	</div>
 
-<!-- FILE CONTENT VIEW -->
-{:else}
+<!-- VIEW: Extraction (Upload) -->
+{:else if viewMode === 'extraction'}
 	<div class="p-4">
-		<h2 class="text-2xl font-bold mb-2">Viewing File: {selectedFile?.fileName}</h2>
-		<p class="text-sm text-gray-500 mb-4">Path: {selectedFile?.key}</p>
+		<div class="flex justify-between items-center mb-4">
+			<h2 class="text-2xl font-bold">Upload Files</h2>
+			<button class="btn btn-secondary" on:click={returnFromExtraction}>
+				Back to Browser
+			</button>
+		</div>
+		<Extraction />
+	</div>
 
-		<!-- Error message for query issues -->
+<!-- VIEW: File Content (Editable) -->
+{:else if viewMode === 'fileContent'}
+	<div class="p-4">
+		<div class="flex justify-between items-center mb-2">
+			<div>
+				<h2 class="text-2xl font-bold">Viewing File: {selectedFile?.fileName}</h2>
+				<p class="text-sm text-gray-500">Path: {selectedFile?.key}</p>
+			</div>
+			<button class="btn btn-secondary" on:click={returnToFileBrowser}>
+				Back to Browser
+			</button>
+		</div>
+
 		{#if queryError}
 			<div class="alert alert-error mb-4">{queryError}</div>
 		{/if}
 
-		<!-- Show loading spinner if data is still loading -->
 		{#if queryLoading}
 			<div class="alert alert-info mb-4 flex items-center">
 				<span class="loading loading-spinner text-primary"></span>
 				<span class="ml-2">Loading data, please wait...</span>
 			</div>
-		{:else if queryResultRows.length > 0}
-			<div class="overflow-x-auto mb-4">
-				<table class="table w-full">
-					<thead>
-						<tr>
-							{#each queryResultColumns as col}
-								<th>{col}</th>
-							{/each}
-						</tr>
-					</thead>
-					<tbody>
-						{#each queryResultRows as row}
-							<tr>
-								{#each queryResultColumns as col}
-									<td>{row[col]}</td>
-								{/each}
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{:else}
+		{:else if queryResultRows.length === 0}
 			<div class="alert alert-info mb-4">
 				No rows found or file is empty.
 			</div>
 		{/if}
 
-		<!-- Button to return to file browser -->
-		<button class="btn btn-link" on:click={returnToFileBrowser}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-left-short" viewBox="0 0 16 16">
-                <path fill-rule="evenodd" d="M12 8a.5.5 0 0 1-.5.5H5.707l2.147 2.146a.5.5 0 0 1-.708.708l-3-3a.5.5 0 0 1 0-.708l3-3a.5.5 0 1 1 .708.708L5.707 7.5H11.5a.5.5 0 0 1 .5.5"/>
-              </svg>
-			Return to File Browser
-		</button>
+		{#if !queryLoading && queryResultRows.length > 0}
+			<div class="overflow-x-auto mb-4">
+				<table class="table w-full">
+					<thead>
+						<tr>
+							{#each queryResultColumns as col}
+								<th class="bg-base-200">{col}</th>
+							{/each}
+							<th class="bg-base-200">Actions</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each editableRows as row, rowIndex}
+							<tr>
+								{#each queryResultColumns as col}
+									<td
+										contenteditable="true"
+										on:blur={(e) => handleCellBlur(rowIndex, col, e)}
+									>
+										{row[col]}
+									</td>
+								{/each}
+								<td>
+									<button
+										class="btn btn-sm btn-error"
+										on:click={() => removeRow(rowIndex)}
+									>
+										Delete
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+			<div class="flex gap-2">
+				<button class="btn btn-accent" on:click={addRow}>
+					Add Row
+				</button>
+				<button class="btn btn-primary" on:click={updateFile}>
+					Update
+				</button>
+				<button class="btn btn-outline" on:click={downloadCSV}>
+					Download CSV
+				</button>
+			</div>
+		{/if}
 	</div>
 {/if}

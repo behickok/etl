@@ -4,11 +4,10 @@
 	
 	// Define the menu items as an array of objects
 	const menuItems = [
-		{ label: 'Dashboard', screen: 'dashboard' },
 		{ label: 'Files', screen: 'files' },
 		{ label: 'Query', screen: 'query' },
-		{ label: 'File Extraction', screen: 'extraction' },
-		{ label: 'Schemas', screen: 'schemas' }
+		{ label: 'Mapping', screen: 'mapping' },
+	  //{ label: 'Schemas', screen: 'schemas' }
 	];
 
 	function selectScreen(screen) {
