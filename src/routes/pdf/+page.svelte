@@ -7,6 +7,7 @@
 	import Extraction from './Extraction.svelte';
 	import SchemasManager from './SchemasManager.svelte';
 	import Query from './Query.svelte';
+	import Files from './Files.svelte';
 	// import other screens as needed
 
 	// Global authentication state
@@ -19,6 +20,7 @@
 	// Mapping screen names to components
 	const screens = {
 		dashboard: Dashboard,
+		files: Files,
 		extraction: Extraction,
 		query:Query,
 		schemas: SchemasManager
