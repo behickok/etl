@@ -91,11 +91,23 @@
 			if (queryResponse && queryResponse.result) {
 				const rows = queryResponse.result.data.toRows();
 				// Convert BigInt values to strings during JSON serialization.
-				const rowsSafe = JSON.parse(
-					JSON.stringify(rows, (key, value) =>
-						typeof value === 'bigint' ? value.toString() : value
-					)
-				);
+				const rowsSafe = rows.map(row => {
+                    const newRow = {};
+                    for (const key in row) {
+                        if (typeof row[key] === 'bigint') {
+                            newRow[key] = row[key].toString();
+                        } else if (typeof row[key] === 'object' && row[key] !== null && 'days' in row[key]) {
+                            // Convert 'days' object to a Date string.
+                            const milliseconds = row[key].days * 86400000;
+                            const date = new Date(milliseconds);
+                            newRow[key] = date.toLocaleString(); // Or date.toLocaleString(), etc.
+                        } else {
+                            newRow[key] = row[key];
+                        }
+                    }
+                    return newRow;
+                });
+
 				queryResultRows = rowsSafe;
 				if (rowsSafe.length > 0) {
 					queryResultColumns = Object.keys(rowsSafe[0]);

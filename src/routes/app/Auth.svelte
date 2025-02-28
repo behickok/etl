@@ -50,7 +50,7 @@
 				rememberMe: 'local'
 			});
 			authStore.set({ user: session, loggedIn: true });
-			console.log(session);
+			// console.log(session);
 		} catch (error) {
 			authError = error.message;
 		}
@@ -96,8 +96,9 @@
 					<input type="password" bind:value={authPassword} class="input input-bordered w-full" required />
 				</div>
 				<div class="flex justify-between">
+					<div></div>
 					<button type="submit" class="btn btn-primary">Sign In</button>
-					<button type="button" class="btn btn-outline" on:click={signOut}>Sign Out</button>
+					<!-- <button type="button" class="btn btn-outline" on:click={signOut}>Sign Out</button> -->
 				</div>
 			</form>
 		{:else}
@@ -120,8 +121,9 @@
 					<input type="text" bind:value={authCompany} class="input input-bordered w-full" required />
 				</div>
 				<div class="flex justify-between">
+					<div></div>
 					<button type="submit" class="btn btn-primary">Sign Up</button>
-					<button type="button" class="btn btn-outline" on:click={signOut}>Sign Out</button>
+					<!-- <button type="button" class="btn btn-outline" on:click={signOut}>Sign Out</button> -->
 				</div>
 			</form>
 		{/if}

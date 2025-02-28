@@ -12,7 +12,7 @@
 	async function runQuery(sql) {
 		error = '';
 		try {
-			console.log('SQL', sql);
+			// console.log('SQL', sql);
 			const connection = await initMotherDuckConnection($authStore.user.protectedProfile.client);
 			if (connection) {
 				try {
@@ -29,7 +29,7 @@
 						}
 					}
 				} catch (err) {
-					console.log('Query failed', err);
+					// console.log('Query failed', err);
 					error = 'Query failed: ' + err.message;
 				}
 			}
